@@ -1,0 +1,35 @@
+/* client/src/style.css */
+
+/* 1. 核心重置：去掉浏览器默认的 8px 边距 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* 禁止整个页面出现滚动条，滚动只在内部区域发生 */
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 2. 确保 Vue 挂载点也是全屏 */
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+/* 3. 滚动条美化 (可选) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}

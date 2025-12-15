@@ -69,6 +69,11 @@
                         </div>
 
                         <div class="action-area">
+                            <el-button link type="primary" :icon="ChatDotRound" @click.stop="handleContact(item)"
+                                style="margin-right: auto; padding-left: 0;">
+                                联系卖家
+                            </el-button>
+
                             <el-button type="danger" size="small" class="buy-btn" :disabled="item.stock_quantity === 0"
                                 @click.stop="openBuyDialog(item)">
                                 {{ item.stock_quantity > 0 ? '立即购买' : '缺货' }}
@@ -136,6 +141,9 @@
             </div>
             <template #footer>
                 <el-button @click="detailVisible = false">关闭</el-button>
+                <el-button type="primary" plain :icon="ChatDotRound" @click="handleContact(selectedItem!)">
+                    联系卖家
+                </el-button>
                 <el-button type="danger" @click="openBuyDialog(selectedItem!)"
                     :disabled="selectedItem?.stock_quantity === 0">
                     立即购买
@@ -147,11 +155,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
+import { useRouter } from 'vue-router'; // 新增
 import request from '../utils/request';
 import { ElMessage } from 'element-plus';
 import {
     Picture, User, Search, Star, StarFilled,
-    View, Clock
+    View, Clock, ChatDotRound // 新增图标
 } from '@element-plus/icons-vue';
 
 interface MarketItem {
@@ -169,6 +178,7 @@ interface MarketItem {
     is_collected?: boolean; // 前端辅助状态
 }
 
+const router = useRouter(); // 初始化 router
 const loading = ref(false);
 const itemList = ref<MarketItem[]>([]);
 
@@ -235,7 +245,22 @@ const showDetail = (item: MarketItem) => {
     });
 };
 
-// 4. 购买逻辑
+// 4. 联系卖家逻辑 (新增)
+const handleContact = (item: MarketItem) => {
+    // 关闭可能打开的详情弹窗
+    detailVisible.value = false;
+
+    // 携带 seller_id 和 seller_name 跳转，MessageCenter 会根据这些参数自动建立会话
+    router.push({
+        path: '/messages',
+        query: {
+            to: item.seller_id,
+            name: item.seller_name
+        }
+    });
+};
+
+// 5. 购买逻辑
 const openBuyDialog = (item: MarketItem) => {
     // 如果当前还在详情弹窗里，先关掉详情弹窗体验更好，或者层叠显示也可以
     // 这里选择保持详情弹窗开启，直接叠购买弹窗
@@ -420,11 +445,14 @@ onMounted(() => {
 
 .action-area {
     display: flex;
-    justify-content: flex-end;
+    /* 修改为 space-between 以适应左侧的联系按钮 */
+    justify-content: space-between;
+    align-items: center;
 }
 
 .buy-btn {
-    width: 100%;
+    /* 移除 width: 100% 以便容纳联系按钮 */
+    /* width: 100%; */
 }
 
 /* 详情弹窗样式 */

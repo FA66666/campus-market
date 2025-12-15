@@ -22,6 +22,12 @@
                     </el-icon><span>我要发布</span>
                 </el-menu-item>
 
+                <el-menu-item index="/messages">
+                    <el-icon>
+                        <ChatDotRound />
+                    </el-icon><span>消息中心</span>
+                </el-menu-item>
+
                 <el-menu-item index="/orders">
                     <el-icon>
                         <ShoppingCart />
@@ -82,8 +88,8 @@
 import { computed } from 'vue';
 import { useUserStore } from '../stores/user';
 import { useRouter, useRoute } from 'vue-router';
-// 引入 List 图标
-import { Shop, Goods, Sell, ShoppingCart, User, ArrowDown, List, Monitor } from '@element-plus/icons-vue';
+// 引入图标，新增 ChatDotRound
+import { Shop, Goods, Sell, ShoppingCart, User, ArrowDown, List, Monitor, ChatDotRound } from '@element-plus/icons-vue';
 
 const userStore = useUserStore();
 const router = useRouter();
@@ -95,6 +101,9 @@ const currentTitle = computed(() => {
     if (route.path === '/publish') return '发布商品';
     if (route.path === '/orders') return '我的订单';
     if (route.path === '/sales') return '卖家中心';
+    if (route.path === '/messages') return '消息中心'; // 新增标题
+    if (route.path === '/profile') return '个人中心';
+    if (route.path === '/admin') return '数据管理';
     return '商品广场';
 });
 

@@ -204,7 +204,7 @@ onMounted(async () => {
     // 全局开启会话列表轮询 (每5秒检查是否有新的人发消息给我)
     convTimer = setInterval(() => {
         fetchConversations();
-    }, 5000);
+    }, 1000);
 });
 
 onUnmounted(() => {

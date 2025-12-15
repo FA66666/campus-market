@@ -1,5 +1,4 @@
 import { Router } from "express";
-// 1. 务必确保这里引入了 getMySales, payOrder, shipOrder, confirmReceipt 等所有新方法
 import {
   createOrder,
   getMyOrders,
@@ -13,15 +12,20 @@ import { authenticateToken } from "../middlewares/auth";
 
 const router = Router();
 
-// --- 卖家接口 (必须放在 /:id 之前，防止被动态参数拦截) ---
-router.get("/sales", authenticateToken, getMySales); // 卖家查看销售记录
+// --- 卖家接口 ---
+router.get("/sales", authenticateToken, getMySales);
 
 // --- 订单操作接口 ---
-router.post("/", authenticateToken, createOrder); // 创建订单
-router.get("/", authenticateToken, getMyOrders); // 买家查看订单
-router.post("/:id/cancel", authenticateToken, cancelOrder); // 取消订单
-router.post("/:id/pay", authenticateToken, payOrder); // 支付
-router.post("/:id/ship", authenticateToken, shipOrder); // 发货
-router.post("/:id/receive", authenticateToken, confirmReceipt); // 收货
+router.post("/", authenticateToken, createOrder);
+
+// GET /api/orders/my - 获取我的订单
+router.get("/my", authenticateToken, getMyOrders);
+
+router.post("/:id/cancel", authenticateToken, cancelOrder);
+router.post("/:id/pay", authenticateToken, payOrder);
+router.post("/:id/ship", authenticateToken, shipOrder);
+
+// 修正：前端请求的是 /receipt，此处需保持一致
+router.post("/:id/receipt", authenticateToken, confirmReceipt);
 
 export default router;

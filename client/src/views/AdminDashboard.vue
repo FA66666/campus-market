@@ -1,351 +1,346 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import request from '../utils/request'
+
+const activeTab = ref('items') // items, users, complaints
+
+// 数据列表
+const pendingItems = ref<any[]>([])
+const users = ref<any[]>([])
+const complaints = ref<any[]>([])
+
+// 投诉处理弹窗
+const showComplaintModal = ref(false)
+const currentComplaintId = ref<number | null>(null)
+const complaintForm = ref({ result: 'resolved', reply: '', deduct_points: 0 })
+
+// --- 商品审核 ---
+const fetchPendingItems = async () => {
+    const res: any = await request.get('/admin/items/pending')
+    if (res.code === 200) pendingItems.value = res.data
+}
+
+const auditItem = async (id: number, action: string) => {
+    try {
+        const res: any = await request.post(`/admin/items/${id}/audit`, { action })
+        if (res.code === 200) {
+            alert('操作成功')
+            fetchPendingItems()
+        }
+    } catch (err) {
+        alert('操作失败')
+    }
+}
+
+// --- 用户管理 ---
+const fetchUsers = async () => {
+    const res: any = await request.get('/admin/users')
+    if (res.code === 200) users.value = res.data
+}
+
+const toggleBanUser = async (user: any) => {
+    const action = user.status === 1 ? 'ban' : 'unban'
+    const confirmText = action === 'ban' ? '封禁' : '解封'
+    if (!confirm(`确定要${confirmText}用户 ${user.username} 吗？`)) return
+
+    try {
+        const res: any = await request.post(`/admin/users/${user.user_id}/manage`, { action })
+        if (res.code === 200) {
+            alert('操作成功')
+            fetchUsers()
+        }
+    } catch (err) {
+        alert('操作失败')
+    }
+}
+
+// --- 投诉处理 ---
+const fetchComplaints = async () => {
+    const res: any = await request.get('/admin/complaints')
+    if (res.code === 200) complaints.value = res.data
+}
+
+const openComplaintHandle = (id: number) => {
+    currentComplaintId.value = id
+    complaintForm.value = { result: 'resolved', reply: '', deduct_points: 0 }
+    showComplaintModal.value = true
+}
+
+const submitComplaintHandle = async () => {
+    if (!currentComplaintId.value) return
+    try {
+        const res: any = await request.post(`/admin/complaints/${currentComplaintId.value}/resolve`, complaintForm.value)
+        if (res.code === 200) {
+            alert('处理完成')
+            showComplaintModal.value = false
+            fetchComplaints()
+        }
+    } catch (err) {
+        alert('提交失败')
+    }
+}
+
+onMounted(() => {
+    fetchPendingItems()
+})
+
+const switchTab = (tab: string) => {
+    activeTab.value = tab
+    if (tab === 'items') fetchPendingItems()
+    if (tab === 'users') fetchUsers()
+    if (tab === 'complaints') fetchComplaints()
+}
+</script>
+
 <template>
-    <div class="admin-container">
-        <div class="header">
-            <div class="header-left">
-                <h2>后台管理系统 - 数据大屏</h2>
-                <span class="subtitle">Platform Operation Center</span>
+    <div class="admin-dashboard">
+        <div class="sidebar">
+            <h3>后台管理</h3>
+            <ul>
+                <li :class="{ active: activeTab === 'items' }" @click="switchTab('items')">商品审核</li>
+                <li :class="{ active: activeTab === 'users' }" @click="switchTab('users')">用户管理</li>
+                <li :class="{ active: activeTab === 'complaints' }" @click="switchTab('complaints')">投诉处理</li>
+            </ul>
+        </div>
+
+        <div class="main-content">
+            <div v-if="activeTab === 'items'">
+                <h2>待审核商品</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>标题</th>
+                            <th>卖家</th>
+                            <th>价格</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="item in pendingItems" :key="item.item_id">
+                            <td>{{ item.item_id }}</td>
+                            <td>{{ item.title }}</td>
+                            <td>{{ item.seller_name }}</td>
+                            <td>{{ item.price }}</td>
+                            <td>
+                                <button @click="auditItem(item.item_id, 'approve')" class="btn-success">通过</button>
+                                <button @click="auditItem(item.item_id, 'reject')" class="btn-danger">驳回</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
-            <div class="header-actions">
-                <el-button type="primary" size="large" @click="$router.push('/admin/audit')">
-                    <el-icon style="margin-right: 5px">
-                        <Stamp />
-                    </el-icon> 商品审核
-                </el-button>
-                <el-button size="large" @click="$router.push('/')">
-                    <el-icon style="margin-right: 5px">
-                        <HomeFilled />
-                    </el-icon> 返回前台
-                </el-button>
+
+            <div v-if="activeTab === 'users'">
+                <h2>用户管理</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>用户名</th>
+                            <th>信誉分</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="u in users" :key="u.user_id">
+                            <td>{{ u.user_id }}</td>
+                            <td>{{ u.username }}</td>
+                            <td>{{ u.credit_score }}</td>
+                            <td>
+                                <span :class="u.status === 1 ? 'text-green' : 'text-red'">
+                                    {{ u.status === 1 ? '正常' : '封禁' }}
+                                </span>
+                            </td>
+                            <td>
+                                <button v-if="u.status === 1" @click="toggleBanUser(u)" class="btn-danger">封禁</button>
+                                <button v-else @click="toggleBanUser(u)" class="btn-success">解封</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div v-if="activeTab === 'complaints'">
+                <h2>投诉列表</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>投诉人</th>
+                            <th>原因</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="c in complaints" :key="c.complaint_id">
+                            <td>{{ c.complaint_id }}</td>
+                            <td>{{ c.reporter_name }}</td>
+                            <td>{{ c.reason }}</td>
+                            <td>{{ c.status === 0 ? '待处理' : (c.status === 1 ? '驳回' : '已处理') }}</td>
+                            <td>
+                                <button v-if="c.status === 0" @click="openComplaintHandle(c.complaint_id)"
+                                    class="btn-primary">处理</button>
+                                <span v-else>已归档</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <el-row :gutter="20" class="card-row">
-            <el-col :span="6">
-                <el-card shadow="hover" class="data-card bg-blue">
-                    <div class="card-content">
-                        <div class="card-title">平台活跃用户</div>
-                        <div class="card-num">
-                            {{ stats.total_active_users }}
-                            <span class="unit">人</span>
-                        </div>
-                    </div>
-                    <div class="card-icon"><el-icon>
-                            <User />
-                        </el-icon></div>
-                </el-card>
-            </el-col>
-
-            <el-col :span="6">
-                <el-card shadow="hover" class="data-card bg-green">
-                    <div class="card-content">
-                        <div class="card-title">在售商品数</div>
-                        <div class="card-num">
-                            {{ stats.active_items }}
-                            <span class="unit">件</span>
-                        </div>
-                    </div>
-                    <div class="card-icon"><el-icon>
-                            <Goods />
-                        </el-icon></div>
-                </el-card>
-            </el-col>
-
-            <el-col :span="6">
-                <el-card shadow="hover" class="data-card bg-orange">
-                    <div class="card-content">
-                        <div class="card-title">累计成交订单</div>
-                        <div class="card-num">
-                            {{ stats.completed_orders }}
-                            <span class="unit">笔</span>
-                        </div>
-                    </div>
-                    <div class="card-icon"><el-icon>
-                            <List />
-                        </el-icon></div>
-                </el-card>
-            </el-col>
-
-            <el-col :span="6">
-                <el-card shadow="hover" class="data-card bg-red">
-                    <div class="card-content">
-                        <div class="card-title">平台总 GMV</div>
-                        <div class="card-num">
-                            <span class="currency">¥</span>
-                            {{ stats.total_gmv }}
-                        </div>
-                    </div>
-                    <div class="card-icon"><el-icon>
-                            <Wallet />
-                        </el-icon></div>
-                </el-card>
-            </el-col>
-        </el-row>
-
-        <el-row :gutter="20" class="chart-row">
-            <el-col :span="16">
-                <el-card class="chart-card">
-                    <template #header>
-                        <div class="chart-header">
-                            <span><el-icon>
-                                    <TrendCharts />
-                                </el-icon> 近七日交易趋势</span>
-                            <el-tag type="info" size="small">实时数据</el-tag>
-                        </div>
-                    </template>
-                    <div class="chart-placeholder">
-                        <div class="bar-group">
-                            <div class="bar" style="height: 40%"></div>
-                            <span class="label">周一</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 60%"></div>
-                            <span class="label">周二</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 35%"></div>
-                            <span class="label">周三</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 85%"></div>
-                            <span class="label">周四</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 55%"></div>
-                            <span class="label">周五</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar active" style="height: 95%"></div>
-                            <span class="label">周六</span>
-                        </div>
-                        <div class="bar-group">
-                            <div class="bar" style="height: 75%"></div>
-                            <span class="label">周日</span>
-                        </div>
-                    </div>
-                </el-card>
-            </el-col>
-
-            <el-col :span="8">
-                <el-card class="chart-card">
-                    <template #header>
-                        <span>快捷操作</span>
-                    </template>
-                    <div class="quick-actions">
-                        <el-button class="action-btn" @click="$router.push('/admin/audit')">
-                            待审核队列 <el-badge is-dot class="item" type="danger" />
-                        </el-button>
-                        <el-button class="action-btn" disabled>用户投诉处理 (开发中)</el-button>
-                        <el-button class="action-btn" disabled>系统日志查看 (开发中)</el-button>
-                    </div>
-                </el-card>
-            </el-col>
-        </el-row>
+        <div v-if="showComplaintModal" class="modal-overlay">
+            <div class="modal-content">
+                <h3>处理投诉</h3>
+                <div class="form-group">
+                    <label>处理结果:</label>
+                    <select v-model="complaintForm.result">
+                        <option value="resolved">投诉成立（已解决）</option>
+                        <option value="rejected">驳回投诉</option>
+                    </select>
+                </div>
+                <div class="form-group" v-if="complaintForm.result === 'resolved'">
+                    <label>扣除信誉分:</label>
+                    <input type="number" v-model="complaintForm.deduct_points" min="0" />
+                </div>
+                <div class="form-group">
+                    <label>管理员回复:</label>
+                    <textarea v-model="complaintForm.reply" rows="3"></textarea>
+                </div>
+                <div class="actions">
+                    <button @click="showComplaintModal = false">取消</button>
+                    <button @click="submitComplaintHandle" class="btn-primary">确认处理</button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
-<script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import request from '../utils/request';
-import {
-    User, Goods, List, Wallet,
-    Stamp, HomeFilled, TrendCharts
-} from '@element-plus/icons-vue';
-
-const stats = ref({
-    total_active_users: 0,
-    active_items: 0,
-    completed_orders: 0,
-    total_gmv: 0
-});
-
-const fetchStats = async () => {
-    try {
-        const res: any = await request.get('/stats');
-        if (res.code === 200) {
-            stats.value = res.data;
-        }
-    } catch (e) {
-        console.error(e);
-    }
-};
-
-onMounted(() => {
-    fetchStats();
-});
-</script>
-
 <style scoped>
-.admin-container {
-    padding: 30px;
-    background-color: #f0f2f5;
-    min-height: 100vh;
-    box-sizing: border-box;
-}
-
-/* 头部样式 */
-.header {
+.admin-dashboard {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    background: #fff;
-    padding: 20px 30px;
-    border-radius: 8px;
-    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+    min-height: 80vh;
 }
 
-.header h2 {
-    margin: 0;
-    color: #303133;
-    font-size: 24px;
+.sidebar {
+    width: 200px;
+    background: #f0f2f5;
+    padding: 20px;
 }
 
-.subtitle {
-    font-size: 14px;
-    color: #909399;
-    margin-left: 5px;
+.sidebar li {
+    list-style: none;
+    padding: 10px;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 5px;
 }
 
-.header-actions {
-    display: flex;
-    gap: 15px;
+.sidebar li.active {
+    background: #409eff;
+    color: white;
 }
 
-/* 数据卡片样式 */
-.card-row {
-    margin-bottom: 30px;
+.main-content {
+    flex: 1;
+    padding: 20px;
 }
 
-.data-card {
-    position: relative;
-    color: #fff;
-    border: none;
-    overflow: hidden;
-    height: 160px;
-    display: flex;
-    align-items: center;
-}
-
-.card-content {
-    z-index: 2;
-    padding: 0 10px;
-}
-
-.card-title {
-    font-size: 16px;
-    opacity: 0.9;
-    margin-bottom: 10px;
-}
-
-.card-num {
-    font-size: 36px;
-    font-weight: bold;
-}
-
-.unit {
-    font-size: 14px;
-    font-weight: normal;
-    margin-left: 4px;
-    opacity: 0.8;
-}
-
-.currency {
-    font-size: 24px;
-    margin-right: 4px;
-}
-
-.card-icon {
-    position: absolute;
-    right: 20px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 64px;
-    opacity: 0.2;
-    z-index: 1;
-}
-
-/* 颜色渐变 */
-.bg-blue {
-    background: linear-gradient(135deg, #3a8ee6, #66b1ff);
-    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
-}
-
-.bg-green {
-    background: linear-gradient(135deg, #529b2e, #95d475);
-    box-shadow: 0 4px 12px rgba(103, 194, 58, 0.4);
-}
-
-.bg-orange {
-    background: linear-gradient(135deg, #b88230, #f3d19e);
-    box-shadow: 0 4px 12px rgba(230, 162, 60, 0.4);
-}
-
-.bg-red {
-    background: linear-gradient(135deg, #c45656, #fab6b6);
-    box-shadow: 0 4px 12px rgba(245, 108, 108, 0.4);
-}
-
-/* 图表区域 */
-.chart-row {
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
     margin-top: 20px;
 }
 
-.chart-header {
+.data-table th,
+.data-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+.data-table th {
+    background-color: #f5f5f5;
+}
+
+.btn-success {
+    background: #67c23a;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 5px;
+}
+
+.btn-danger {
+    background: #f56c6c;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background: #409eff;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.text-green {
+    color: #67c23a;
+}
+
+.text-red {
+    color: #f56c6c;
+}
+
+/* 弹窗样式复用 */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
 }
 
-.chart-placeholder {
-    height: 300px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-around;
-    padding: 20px 40px;
-    background: #fff;
+.modal-content {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    width: 400px;
 }
 
-.bar-group {
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+}
+
+.actions {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    height: 100%;
     justify-content: flex-end;
-    width: 40px;
-}
-
-.bar {
-    width: 100%;
-    background-color: #409EFF;
-    border-radius: 4px 4px 0 0;
-    opacity: 0.6;
-    transition: height 0.8s ease;
-}
-
-.bar.active {
-    opacity: 1;
-    background-color: #337ecc;
-}
-
-.label {
-    margin-top: 10px;
-    color: #606266;
-    font-size: 12px;
-}
-
-/* 快捷操作 */
-.quick-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    padding: 10px 0;
-}
-
-.action-btn {
-    width: 100%;
-    height: 50px;
-    justify-content: flex-start;
-    padding-left: 20px;
-    font-size: 14px;
+    gap: 10px;
 }
 </style>

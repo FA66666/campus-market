@@ -1,61 +1,106 @@
 import { Request, Response } from "express";
 import pool from "../config/db";
 
-// 1. 创建订单
+// 1. 创建订单 (支持购物车多商家拆单)
 export const createOrder = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const buyerId = req.user.userId;
-    const { seller_id, item_id, quantity, address, phone } = req.body;
+    // 接收 items 数组
+    const { items, address, phone } = req.body;
 
-    if (!seller_id || !item_id || !address || !phone) {
-      res.status(400).json({ message: "订单信息不完整" });
+    if (
+      !items ||
+      !Array.isArray(items) ||
+      items.length === 0 ||
+      !address ||
+      !phone
+    ) {
+      res
+        .status(400)
+        .json({ message: "订单信息不完整（需包含商品列表、地址、电话）" });
       return;
     }
 
-    const itemsJson = JSON.stringify([
-      { item_id: Number(item_id), qty: Number(quantity || 1) },
-    ]);
+    // --- 核心逻辑：订单拆分 ---
+    const ordersBySeller = new Map<number, any[]>();
+    for (const item of items) {
+      const sid = Number(item.seller_id);
+      if (!sid || !item.item_id) continue;
 
-    const sql = `
-      CALL sp_create_order(?, ?, ?, ?, ?, @res_code, @order_id);
-      SELECT @res_code AS res_code, @order_id AS order_id;
-    `;
+      if (!ordersBySeller.has(sid)) {
+        ordersBySeller.set(sid, []);
+      }
 
-    const [results]: any = await pool.query(sql, [
-      buyerId,
-      seller_id,
-      itemsJson,
-      address,
-      phone,
-    ]);
-    const output = results[1][0];
-    const code = output.res_code;
-    const orderId = output.order_id;
+      // ✅ 修复：添加 '!' 非空断言，解决 "Object is possibly 'undefined'" 错误
+      ordersBySeller.get(sid)!.push({
+        item_id: Number(item.item_id),
+        qty: Number(item.quantity || 1),
+      });
+    }
 
-    if (code === 200) {
-      res.status(201).json({ code: 200, message: "下单成功", orderId });
+    const createdOrderIds: number[] = [];
+    const errors: string[] = [];
+
+    // 遍历每个商家，分别调用存储过程下单
+    for (const [sellerId, sellerItems] of ordersBySeller) {
+      const itemsJson = JSON.stringify(sellerItems);
+
+      const sql = `
+        CALL sp_create_order(?, ?, ?, ?, ?, @res_code, @order_id);
+        SELECT @res_code AS res_code, @order_id AS order_id;
+      `;
+
+      try {
+        const [results] = await pool.query(sql, [
+          buyerId,
+          sellerId,
+          itemsJson,
+          address,
+          phone,
+        ]);
+
+        const rows = results as any[]; // 强制类型转换
+        // 存储过程返回结果在第二个语句 (Index 1) 的第一行 (Index 0)
+        const output = rows[1] ? rows[1][0] : null;
+
+        if (output && output.res_code === 200) {
+          createdOrderIds.push(output.order_id);
+        } else {
+          const code = output ? output.res_code : "Unknown";
+          errors.push(`卖家(ID:${sellerId})订单创建失败，错误码: ${code}`);
+        }
+      } catch (err: any) {
+        console.error(`卖家 ${sellerId} 拆单异常:`, err);
+        errors.push(`卖家(ID:${sellerId})系统处理异常`);
+      }
+    }
+
+    if (createdOrderIds.length > 0) {
+      res.status(201).json({
+        code: 200,
+        message: "下单处理完成",
+        orderIds: createdOrderIds,
+        warnings: errors.length > 0 ? errors : undefined,
+      });
     } else {
-      res.status(400).json({ message: "下单失败，错误码：" + code });
+      res.status(400).json({ message: "下单失败", errors });
     }
   } catch (error) {
-    console.error("创建订单失败:", error);
+    console.error("创建订单全局失败:", error);
     res.status(500).json({ message: "服务器内部错误" });
   }
 };
 
-// 2. 获取我的订单 (买家视角) - 修改版：包含评价信息
+// 2. 获取我的订单 (买家视角)
 export const getMyOrders = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const buyerId = req.user.userId;
-
-    // 使用 LEFT JOIN 关联 Reviews 表
-    // 条件是: r.order_id = o.order_id 且 r.user_id = o.buyer_id (确保查的是我自己写的评价)
     const sql = `
       SELECT 
         o.order_id, 
@@ -64,8 +109,8 @@ export const getMyOrders = async (
         o.created_at,
         i.title AS item_title, 
         i.main_image,
-        r.rating AS my_rating,      -- 新增字段：我的评分
-        r.content AS my_review      -- 新增字段：我的评价内容
+        r.rating AS my_rating,
+        r.content AS my_review
       FROM Orders o
       JOIN Order_Items oi ON o.order_id = oi.order_id
       JOIN Items i ON oi.item_id = i.item_id
@@ -100,8 +145,6 @@ export const cancelOrder = async (
   }
 };
 
-// --- 以下是新增的方法 ---
-
 // 4. 获取我卖出的 (卖家视角)
 export const getMySales = async (
   req: Request,
@@ -124,27 +167,43 @@ export const getMySales = async (
     const [rows] = await pool.query(sql, [sellerId]);
     res.json({ code: 200, data: rows });
   } catch (error) {
-    console.error("获取销售记录失败:", error); // 加上日志方便排查
+    console.error("获取销售记录失败:", error);
     res.status(500).json({ message: "获取失败" });
   }
 };
 
-// 5. 支付订单 (状态 0 -> 1)
+// 5. 支付订单 (包含凭证上传)
 export const payOrder = async (req: Request, res: Response): Promise<void> => {
   try {
     const buyerId = req.user.userId;
     const orderId = req.params.id;
-    await pool.query(
-      "UPDATE Orders SET status = 1 WHERE order_id = ? AND buyer_id = ? AND status = 0",
-      [orderId, buyerId]
+    const { transaction_ref, payment_proof } = req.body;
+
+    if (!transaction_ref || !payment_proof) {
+      res.status(400).json({ message: "支付失败：必须提供支付凭证图和流水号" });
+      return;
+    }
+
+    const [result]: any = await pool.query(
+      `UPDATE Orders 
+       SET status = 1, transaction_ref = ?, payment_proof = ?
+       WHERE order_id = ? AND buyer_id = ? AND status = 0`,
+      [transaction_ref, payment_proof, orderId, buyerId]
     );
-    res.json({ code: 200, message: "支付成功" });
+
+    if (result.affectedRows === 0) {
+      res.status(400).json({ message: "操作失败：订单不存在或状态不正确" });
+      return;
+    }
+
+    res.json({ code: 200, message: "支付提交成功，请等待卖家发货" });
   } catch (error) {
+    console.error("支付异常", error);
     res.status(500).json({ message: "支付失败" });
   }
 };
 
-// 6. 发货 (状态 1 -> 2)
+// 6. 发货
 export const shipOrder = async (req: Request, res: Response): Promise<void> => {
   try {
     const sellerId = req.user.userId;
@@ -154,7 +213,7 @@ export const shipOrder = async (req: Request, res: Response): Promise<void> => {
       [orderId, sellerId]
     );
     if (result.affectedRows === 0) {
-      res.status(403).json({ message: "操作失败：无权操作或状态不符" });
+      res.status(403).json({ message: "操作失败：无权操作或订单状态不符" });
       return;
     }
     res.json({ code: 200, message: "发货成功" });
@@ -163,7 +222,7 @@ export const shipOrder = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-// 7. 确认收货 (状态 2 -> 3)
+// 7. 确认收货
 export const confirmReceipt = async (
   req: Request,
   res: Response

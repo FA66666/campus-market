@@ -9,6 +9,7 @@ export interface User {
   student_id: string;
   real_name: string;
   status?: number;
+  deleted_at?: Date | string | null; // ✅ 新增：解决 TS 报错
 }
 
 export const UserModel = {
@@ -27,8 +28,6 @@ export const UserModel = {
       `INSERT INTO Users (username, password_hash, student_id, real_name, status) 
        VALUES (?, ?, ?, ?, ?)`,
       [user.username, user.password_hash, user.student_id, user.real_name, 1]
-      // 注意：为了方便测试，我们将 status 默认设为 1 (正常)，
-      // 实际生产中应设为 2 (待审核) 并走审核流程。
     );
     return result.insertId;
   },

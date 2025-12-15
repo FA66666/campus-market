@@ -50,6 +50,13 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // ✅ 修复：现在 User 类型包含 deleted_at，此处不会报错
+    // 检查是否已软删除
+    if (user.deleted_at) {
+      res.status(403).json({ message: "该账户已注销，无法登录" });
+      return;
+    }
+
     // 2. 验证密码
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
@@ -58,8 +65,14 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // 3. 检查状态
+    // status: 0:封禁, 1:正常, 2:待审核, 3:认证驳回
     if (user.status !== 1) {
-      res.status(403).json({ message: "账户状态异常（待审核或被封禁）" });
+      let msg = "账户状态异常";
+      if (user.status === 0) msg = "账户已被封禁";
+      if (user.status === 2) msg = "账户正在审核中，请耐心等待";
+      if (user.status === 3) msg = "实名认证未通过，请联系管理员";
+
+      res.status(403).json({ message: msg });
       return;
     }
 

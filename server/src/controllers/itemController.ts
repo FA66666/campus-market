@@ -3,8 +3,6 @@ import { Request, Response } from "express";
 import pool from "../config/db";
 import { RowDataPacket } from "mysql2";
 
-// server/src/controllers/itemController.ts
-
 export const getMarketItems = async (
   req: Request,
   res: Response
@@ -44,6 +42,30 @@ export const getMarketItems = async (
     res.status(500).json({ message: "服务器内部错误" });
   }
 };
+
+// 新增：获取我发布的商品
+export const getMyItems = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.user.userId;
+    // 查询该用户发布的所有商品
+    const sql =
+      "SELECT * FROM Items WHERE seller_id = ? ORDER BY created_at DESC";
+    const [rows] = await pool.query(sql, [userId]);
+
+    res.json({
+      code: 200,
+      data: rows,
+      message: "获取成功",
+    });
+  } catch (error) {
+    console.error("获取我的商品失败:", error);
+    res.status(500).json({ message: "获取失败" });
+  }
+};
+
 export const createItem = async (
   req: Request,
   res: Response
@@ -70,7 +92,7 @@ export const createItem = async (
       return;
     }
 
-    // 4. 插入数据库 (注意：status 默认为 1-上架)
+    // 4. 插入数据库 (status 0: 初始/上架状态)
     const [result] = await pool.execute<any>(
       `INSERT INTO Items 
       (seller_id, category_id, title, description, price, stock_quantity, status, main_image) 
@@ -96,7 +118,6 @@ export const createItem = async (
     res.status(500).json({ message: "发布失败，请检查输入" });
   }
 };
-// server/src/controllers/itemController.ts (追加)
 
 // 4. 切换收藏状态 (收藏/取消)
 export const toggleCollect = async (
@@ -114,14 +135,14 @@ export const toggleCollect = async (
     );
 
     if (rows.length > 0) {
-      // 已收藏 -> 取消收藏 (DELETE 会触发 trg_fav_del，自动减少统计表计数)
+      // 已收藏 -> 取消收藏
       await pool.query(
         "DELETE FROM Favorites WHERE user_id = ? AND item_id = ?",
         [userId, itemId]
       );
       res.json({ code: 200, action: "removed", message: "已取消收藏" });
     } else {
-      // 未收藏 -> 添加收藏 (INSERT 会触发 trg_fav_add，自动增加统计表计数)
+      // 未收藏 -> 添加收藏
       await pool.query(
         "INSERT INTO Favorites (user_id, item_id) VALUES (?, ?)",
         [userId, itemId]
@@ -141,8 +162,6 @@ export const incrementView = async (
 ): Promise<void> => {
   try {
     const itemId = req.params.id;
-    // 利用 ON DUPLICATE KEY UPDATE 实现计数器自增
-    // 对应需求文档：高频写入计数器
     const sql = `
       INSERT INTO Item_Statistics (item_id, view_count) VALUES (?, 1)
       ON DUPLICATE KEY UPDATE view_count = view_count + 1
@@ -150,7 +169,6 @@ export const incrementView = async (
     await pool.query(sql, [itemId]);
     res.json({ code: 200, message: "View counted" });
   } catch (error) {
-    // 浏览量统计失败不应阻塞前台，静默失败即可
     console.error("浏览计数失败:", error);
     res.status(200).json({ message: "ok" });
   }

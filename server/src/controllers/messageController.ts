@@ -7,7 +7,7 @@ export const sendMessage = async (
   res: Response
 ): Promise<void> => {
   try {
-    const senderId = req.user.userId;
+    const senderId = (req as any).user.userId;
     const { receiver_id, item_id, content } = req.body;
 
     if (!receiver_id || !content) {
@@ -27,17 +27,14 @@ export const sendMessage = async (
   }
 };
 
-// 2. 获取我的会话列表 (难点 SQL)
-// 逻辑：查找我发出的或我收到的消息，按对方ID分组，取最新的一条
+// 2. 获取我的会话列表
 export const getConversations = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const userId = req.user.userId;
+    const userId = (req as any).user.userId;
 
-    // 这是一个经典的“查找最近联系人”的 SQL
-    // 我们获取每一个对话方 (counterpart_id) 的最新一条消息时间
     const sql = `
       SELECT 
         u.user_id AS counterpart_id,
@@ -62,7 +59,6 @@ export const getConversations = async (
       ORDER BY m.created_at DESC
     `;
 
-    // 参数需要填 5 次 userId (为了匹配各种 WHERE 条件)
     const [rows] = await pool.query(sql, [
       userId,
       userId,
@@ -85,10 +81,14 @@ export const getHistory = async (
   res: Response
 ): Promise<void> => {
   try {
-    const myId = req.user.userId;
-    const targetId = req.params.userId;
+    const myId = (req as any).user.userId;
+    const targetId = req.query.target_id;
 
-    // 查我和他之间的所有往来
+    if (!targetId) {
+      res.status(400).json({ message: "参数缺失" });
+      return;
+    }
+
     const sql = `
       SELECT * FROM Messages 
       WHERE (sender_id = ? AND receiver_id = ?) 
@@ -98,7 +98,6 @@ export const getHistory = async (
 
     const [rows] = await pool.query(sql, [myId, targetId, targetId, myId]);
 
-    // 顺便把对方发给我的未读消息标记为已读
     await pool.query(
       "UPDATE Messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0",
       [targetId, myId]
@@ -107,5 +106,35 @@ export const getHistory = async (
     res.json({ code: 200, data: rows });
   } catch (error) {
     res.status(500).json({ message: "获取记录失败" });
+  }
+};
+
+// ✅ 新增：4. 删除会话
+export const deleteConversation = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const myId = (req as any).user.userId;
+    const targetId = req.params.targetId;
+
+    if (!targetId) {
+      res.status(400).json({ message: "参数缺失" });
+      return;
+    }
+
+    // 物理删除我与该用户的所有消息 (清理脏数据)
+    const sql = `
+      DELETE FROM Messages 
+      WHERE (sender_id = ? AND receiver_id = ?) 
+         OR (sender_id = ? AND receiver_id = ?)
+    `;
+
+    await pool.query(sql, [myId, targetId, targetId, myId]);
+
+    res.json({ code: 200, message: "会话已删除" });
+  } catch (error) {
+    console.error("删除会话失败:", error);
+    res.status(500).json({ message: "删除失败" });
   }
 };

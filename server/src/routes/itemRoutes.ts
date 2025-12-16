@@ -1,22 +1,24 @@
 import { Router } from "express";
 import {
-  getMarketItems,
   createItem,
+  getMarketItems,
   toggleCollect,
   incrementView,
+  getMyItems, // 新增导入
 } from "../controllers/itemController";
 import { authenticateToken } from "../middlewares/auth";
 
 const router = Router();
 
-// GET /api/items/market - 获取商品广场列表
+// 公开接口
 router.get("/market", getMarketItems);
-
-// POST /api/items - 发布商品
-router.post("/", authenticateToken, createItem);
-
-// 新增互动路由
-router.post("/:id/collect", authenticateToken, toggleCollect);
 router.post("/:id/view", incrementView);
+
+// 需要登录的接口
+router.post("/", authenticateToken, createItem);
+router.post("/:id/collect", authenticateToken, toggleCollect);
+
+// 新增：获取我发布的商品
+router.get("/my", authenticateToken, getMyItems);
 
 export default router;

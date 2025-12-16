@@ -6,15 +6,23 @@
                 <div class="sidebar-header">消息列表</div>
                 <el-scrollbar>
                     <div v-for="conv in conversations" :key="conv.counterpart_id" class="conv-item"
-                        :class="{ active: currentChatUser?.user_id === conv.counterpart_id }" @click="selectUser(conv)">
+                        :class="{ active: currentChatUser?.user_id === conv.counterpart_id }" @click="selectUser(conv)"
+                        @mouseenter="conv.showDel = true" @mouseleave="conv.showDel = false">
                         <el-badge :value="conv.unread_count" :hidden="conv.unread_count === 0" class="avatar-badge">
-                            <el-avatar :size="40">{{ conv.counterpart_name.charAt(0).toUpperCase() }}</el-avatar>
+                            <el-avatar :size="40">{{ (conv.counterpart_name || 'U').charAt(0).toUpperCase()
+                            }}</el-avatar>
                         </el-badge>
                         <div class="conv-info">
                             <div class="conv-name">{{ conv.counterpart_name }}</div>
                             <div class="conv-msg text-truncate">{{ conv.last_message }}</div>
                         </div>
                         <div class="conv-time">{{ formatTime(conv.created_at) }}</div>
+
+                        <div v-if="conv.showDel" class="del-btn" @click.stop="handleDeleteConv(conv)">
+                            <el-icon>
+                                <Delete />
+                            </el-icon>
+                        </div>
                     </div>
                     <el-empty v-if="conversations.length === 0" description="暂无消息" image-size="60" />
                 </el-scrollbar>
@@ -27,10 +35,24 @@
                     </div>
 
                     <el-scrollbar class="chat-history" ref="historyScroll">
-                        <div v-for="msg in messageList" :key="msg.message_id" class="msg-row"
-                            :class="{ 'msg-mine': msg.sender_id === myId }">
-                            <div class="msg-bubble">
-                                {{ msg.content }}
+                        <div class="history-inner">
+                            <div v-for="msg in messageList" :key="msg.message_id" class="msg-row"
+                                :class="{ 'msg-mine': isMyMessage(msg) }">
+                                <el-avatar v-if="!isMyMessage(msg)" :size="32" class="msg-avatar-left">
+                                    {{ currentChatUser.username.charAt(0).toUpperCase() }}
+                                </el-avatar>
+
+                                <div class="msg-content-wrapper">
+                                    <div class="msg-bubble">
+                                        {{ msg.content }}
+                                    </div>
+                                    <div class="msg-time-tip">{{ formatDetailTime(msg.created_at) }}</div>
+                                </div>
+
+                                <el-avatar v-if="isMyMessage(msg)" :size="32" class="msg-avatar-right"
+                                    style="background-color: #409EFF">
+                                    我
+                                </el-avatar>
                             </div>
                         </div>
                     </el-scrollbar>
@@ -51,14 +73,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, onUnmounted } from 'vue';
+import { ref, onMounted, nextTick, onUnmounted, computed } from 'vue';
 import request from '../utils/request';
 import { useUserStore } from '../stores/user';
 import { useRoute } from 'vue-router';
+// ✅ 新增：引入 Delete 图标和 ElMessageBox
+import { Delete } from '@element-plus/icons-vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
 
 const userStore = useUserStore();
 const route = useRoute();
-const myId = userStore.userInfo?.id;
+
+const myId = computed(() => userStore.userInfo?.user_id || userStore.userInfo?.id);
 
 const conversations = ref<any[]>([]);
 const messageList = ref<any[]>([]);
@@ -67,25 +93,31 @@ const inputContent = ref('');
 const historyScroll = ref();
 const sending = ref(false);
 
-// 定时器引用
 let msgTimer: any = null;
 let convTimer: any = null;
 
-// 1. 获取会话列表 (静默刷新)
+const isMyMessage = (msg: any) => {
+    return msg.sender_id === myId.value;
+};
+
+// 1. 获取会话列表
 const fetchConversations = async () => {
     try {
-        const res: any = await request.get('/messages/conversations');
+        const res: any = await request.get('/messages/contacts');
         if (res.code === 200) {
-            // 这里可以做一个简单对比，如果没有变化就不赋值，避免列表闪烁
-            // 简单起见直接赋值，Vue 的 diff 算法会处理 DOM 更新
-            conversations.value = res.data;
+            // 保留 showDel 状态
+            const oldMap = new Map(conversations.value.map(c => [c.counterpart_id, c.showDel]));
+
+            conversations.value = res.data.map((c: any) => ({
+                ...c,
+                showDel: oldMap.get(c.counterpart_id) || false
+            }));
         }
     } catch (e) { }
 };
 
 // 2. 选中某人聊天
 const selectUser = async (conv: any) => {
-    // 如果点击的是当前正在聊的人，不做操作
     if (currentChatUser.value?.user_id === conv.counterpart_id) return;
 
     currentChatUser.value = {
@@ -93,26 +125,44 @@ const selectUser = async (conv: any) => {
         username: conv.counterpart_name
     };
 
-    // 切换用户时，先清空消息列表，给用户加载中的感觉(或者保留旧的也行，这里选择清空避免误会)
     messageList.value = [];
-
-    // 立即加载一次，并强制滚动到底部
     await loadHistory(conv.counterpart_id, true);
 
-    // 本地清除未读红点
     conv.unread_count = 0;
-
-    // 开启消息轮询
     startMsgPolling(conv.counterpart_id);
 };
 
-// 开启消息轮询
+// ✅ 新增：删除会话逻辑
+const handleDeleteConv = async (conv: any) => {
+    try {
+        await ElMessageBox.confirm('确定删除该会话及所有聊天记录吗？此操作不可恢复。', '删除确认', {
+            type: 'warning',
+            confirmButtonText: '删除',
+            cancelButtonText: '取消'
+        });
+
+        const res: any = await request.delete(`/messages/conversations/${conv.counterpart_id}`);
+        if (res.code === 200) {
+            ElMessage.success('删除成功');
+            // 如果删除的是当前正在聊的，清空右侧
+            if (currentChatUser.value?.user_id === conv.counterpart_id) {
+                currentChatUser.value = null;
+                messageList.value = [];
+                stopMsgPolling();
+            }
+            fetchConversations();
+        }
+    } catch (e) {
+        // 取消或失败
+    }
+};
+
+// 3. 消息轮询
 const startMsgPolling = (targetId: number) => {
-    stopMsgPolling(); // 先清除旧的
+    stopMsgPolling();
     msgTimer = setInterval(() => {
-        // 轮询时不强制滚动，除非有新消息
         loadHistory(targetId, false);
-    }, 3000); // 每3秒刷新一次
+    }, 3000);
 };
 
 const stopMsgPolling = () => {
@@ -122,28 +172,23 @@ const stopMsgPolling = () => {
     }
 };
 
-// 3. 加载历史记录
-// forceScroll: 是否强制滚动到底部（切换联系人时为true，轮询时为false）
+// 4. 加载历史记录
 const loadHistory = async (targetId: number, forceScroll = false) => {
     try {
-        const res: any = await request.get(`/messages/history/${targetId}`);
+        const res: any = await request.get(`/messages/history?target_id=${targetId}`);
         if (res.code === 200) {
             const newMessages = res.data || [];
-            const oldLength = messageList.value.length;
-
-            messageList.value = newMessages;
-
-            // 智能滚动逻辑：
-            // 1. 如果是强制滚动 (刚进来) -> 滚
-            // 2. 如果消息数量变多了 (收到新消息) -> 滚
-            if (forceScroll || newMessages.length > oldLength) {
+            if (forceScroll || newMessages.length > messageList.value.length) {
+                messageList.value = newMessages;
                 scrollToBottom();
+            } else {
+                messageList.value = newMessages;
             }
         }
     } catch (e) { }
 };
 
-// 4. 发送消息
+// 5. 发送消息
 const handleSend = async () => {
     if (!inputContent.value.trim()) return;
     const content = inputContent.value;
@@ -151,16 +196,14 @@ const handleSend = async () => {
 
     sending.value = true;
     try {
-        const res: any = await request.post('/messages', {
+        const res: any = await request.post('/messages/send', {
             receiver_id: targetId,
             content: content
         });
 
         if (res.code === 200) {
             inputContent.value = '';
-            // 发送成功后，立即刷新一次列表，确保包含最新消息
             await loadHistory(targetId, true);
-            // 同时也刷新会话列表，更新“最后一条消息”
             fetchConversations();
         }
     } catch (e) {
@@ -182,17 +225,20 @@ const formatTime = (timeStr: string) => {
     if (!timeStr) return '';
     const date = new Date(timeStr);
     const now = new Date();
-    // 如果是今天的消息，只显示时间，否则显示日期
     if (date.toDateString() === now.toDateString()) {
         return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
     }
     return date.toLocaleDateString();
 };
 
+const formatDetailTime = (timeStr: string) => {
+    if (!timeStr) return '';
+    return new Date(timeStr).toLocaleString();
+}
+
 onMounted(async () => {
     await fetchConversations();
 
-    // 如果 URL 带了参数 (从商品详情页跳过来)
     const targetId = route.query.to;
     const targetName = route.query.name;
     if (targetId) {
@@ -201,10 +247,9 @@ onMounted(async () => {
         startMsgPolling(Number(targetId));
     }
 
-    // 全局开启会话列表轮询 (每5秒检查是否有新的人发消息给我)
     convTimer = setInterval(() => {
         fetchConversations();
-    }, 1000);
+    }, 5000);
 });
 
 onUnmounted(() => {
@@ -223,9 +268,8 @@ onUnmounted(() => {
     height: 100%;
 }
 
-/* 左侧 */
 .chat-sidebar {
-    width: 250px;
+    width: 260px;
     border-right: 1px solid #eee;
     display: flex;
     flex-direction: column;
@@ -241,12 +285,14 @@ onUnmounted(() => {
 
 .conv-item {
     display: flex;
-    padding: 12px;
+    padding: 15px;
     cursor: pointer;
     border-bottom: 1px solid #f5f5f5;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     transition: background-color 0.2s;
+    position: relative;
+    /* 为删除按钮定位 */
 }
 
 .conv-item:hover {
@@ -267,18 +313,18 @@ onUnmounted(() => {
     font-weight: 600;
     font-size: 14px;
     color: #333;
+    margin-bottom: 4px;
 }
 
 .conv-msg {
     font-size: 12px;
     color: #999;
-    margin-top: 4px;
 }
 
 .conv-time {
     font-size: 11px;
     color: #ccc;
-    min-width: 35px;
+    min-width: 40px;
     text-align: right;
 }
 
@@ -286,6 +332,27 @@ onUnmounted(() => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ✅ 新增：删除按钮样式 */
+.del-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #fff;
+    border-radius: 4px;
+    padding: 6px;
+    color: #f56c6c;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.del-btn:hover {
+    background: #fef0f0;
 }
 
 /* 右侧 */
@@ -297,41 +364,62 @@ onUnmounted(() => {
 }
 
 .chat-header {
-    padding: 15px 20px;
+    padding: 0 20px;
     border-bottom: 1px solid #eee;
     font-weight: bold;
     font-size: 16px;
     display: flex;
     align-items: center;
-    height: 55px;
+    height: 60px;
     box-sizing: border-box;
 }
 
 .chat-history {
     flex: 1;
-    padding: 20px;
     background: #f9f9f9;
 }
 
+.history-inner {
+    padding: 20px;
+}
+
 .chat-input {
-    padding: 15px 20px;
+    padding: 20px;
     border-top: 1px solid #eee;
     background: #fff;
 }
 
-/* 消息气泡 */
 .msg-row {
     display: flex;
-    margin-bottom: 15px;
+    margin-bottom: 20px;
+    align-items: flex-start;
     animation: fadeIn 0.3s ease;
 }
 
-.msg-mine {
-    justify-content: flex-end;
+.msg-row.msg-mine {
+    flex-direction: row-reverse;
+}
+
+.msg-avatar-left {
+    margin-right: 10px;
+    background-color: #909399;
+}
+
+.msg-avatar-right {
+    margin-left: 10px;
+}
+
+.msg-content-wrapper {
+    max-width: 70%;
+    display: flex;
+    flex-direction: column;
+}
+
+.msg-mine .msg-content-wrapper {
+    align-items: flex-end;
 }
 
 .msg-bubble {
-    max-width: 70%;
     padding: 10px 14px;
     border-radius: 8px;
     font-size: 14px;
@@ -340,13 +428,22 @@ onUnmounted(() => {
     color: #333;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     word-break: break-all;
+    position: relative;
+    border: 1px solid #eee;
 }
 
 .msg-mine .msg-bubble {
     background: #409EFF;
     color: #fff;
-    border-bottom-right-radius: 2px;
-    box-shadow: 0 1px 2px rgba(64, 158, 255, 0.2);
+    border: none;
+    box-shadow: 0 1px 4px rgba(64, 158, 255, 0.3);
+}
+
+.msg-time-tip {
+    font-size: 11px;
+    color: #ccc;
+    margin-top: 5px;
+    margin-left: 2px;
 }
 
 @keyframes fadeIn {

@@ -3,13 +3,21 @@ import {
   sendMessage,
   getConversations,
   getHistory,
+  deleteConversation, // ✅ 引入新方法
 } from "../controllers/messageController";
 import { authenticateToken } from "../middlewares/auth";
 
 const router = Router();
 
-router.post("/", authenticateToken, sendMessage); // 发送
-router.get("/conversations", authenticateToken, getConversations); // 会话列表
-router.get("/history/:userId", authenticateToken, getHistory); // 具体聊天记录
+router.post("/send", authenticateToken, sendMessage);
+router.get("/contacts", authenticateToken, getConversations);
+router.get("/history", authenticateToken, getHistory);
+
+// ✅ 新增：删除会话路由
+router.delete(
+  "/conversations/:targetId",
+  authenticateToken,
+  deleteConversation
+);
 
 export default router;

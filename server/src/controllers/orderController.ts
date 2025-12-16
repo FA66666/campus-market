@@ -7,7 +7,7 @@ export const createOrder = async (
   res: Response
 ): Promise<void> => {
   try {
-    const buyerId = req.user.userId;
+    const buyerId = (req as any).user.userId;
     // 接收 items 数组
     const { items, address, phone } = req.body;
 
@@ -34,7 +34,6 @@ export const createOrder = async (
         ordersBySeller.set(sid, []);
       }
 
-      // ✅ 修复：添加 '!' 非空断言，解决 "Object is possibly 'undefined'" 错误
       ordersBySeller.get(sid)!.push({
         item_id: Number(item.item_id),
         qty: Number(item.quantity || 1),
@@ -100,7 +99,7 @@ export const getMyOrders = async (
   res: Response
 ): Promise<void> => {
   try {
-    const buyerId = req.user.userId;
+    const buyerId = (req as any).user.userId;
     const sql = `
       SELECT 
         o.order_id, 
@@ -133,7 +132,7 @@ export const cancelOrder = async (
   res: Response
 ): Promise<void> => {
   try {
-    const buyerId = req.user.userId;
+    const buyerId = (req as any).user.userId;
     const orderId = req.params.id;
     await pool.query(
       "UPDATE Orders SET status = 4 WHERE order_id = ? AND buyer_id = ? AND status = 0",
@@ -151,7 +150,7 @@ export const getMySales = async (
   res: Response
 ): Promise<void> => {
   try {
-    const sellerId = req.user.userId;
+    const sellerId = (req as any).user.userId;
     const sql = `
       SELECT o.order_id, o.total_amount, o.status, o.created_at, o.buyer_id,
              o.delivery_snapshot, o.receiver_phone,
@@ -173,16 +172,26 @@ export const getMySales = async (
 };
 
 // 5. 支付订单 (包含凭证上传)
+// ✅ 关键修改：处理 multipart/form-data
 export const payOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-    const buyerId = req.user.userId;
+    const buyerId = (req as any).user.userId;
     const orderId = req.params.id;
-    const { transaction_ref, payment_proof } = req.body;
 
-    if (!transaction_ref || !payment_proof) {
+    // multer 中间件处理后：
+    // 普通文本字段在 req.body 中
+    const { transaction_ref } = req.body;
+    // 文件信息在 req.file 中
+    const file = (req as any).file;
+
+    if (!transaction_ref || !file) {
       res.status(400).json({ message: "支付失败：必须提供支付凭证图和流水号" });
       return;
     }
+
+    // 构建数据库存储路径 (相对路径，配合 index.ts 的 static 配置)
+    // 这里的路径格式为 /uploads/payment_proofs/文件名
+    const payment_proof = `/uploads/payment_proofs/${file.filename}`;
 
     const [result]: any = await pool.query(
       `UPDATE Orders 
@@ -206,7 +215,7 @@ export const payOrder = async (req: Request, res: Response): Promise<void> => {
 // 6. 发货
 export const shipOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-    const sellerId = req.user.userId;
+    const sellerId = (req as any).user.userId;
     const orderId = req.params.id;
     const [result]: any = await pool.query(
       "UPDATE Orders SET status = 2 WHERE order_id = ? AND seller_id = ? AND status = 1",
@@ -228,7 +237,7 @@ export const confirmReceipt = async (
   res: Response
 ): Promise<void> => {
   try {
-    const buyerId = req.user.userId;
+    const buyerId = (req as any).user.userId;
     const orderId = req.params.id;
     await pool.query(
       "UPDATE Orders SET status = 3 WHERE order_id = ? AND buyer_id = ? AND status = 2",

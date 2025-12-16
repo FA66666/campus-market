@@ -10,7 +10,7 @@
                         @mouseenter="conv.showDel = true" @mouseleave="conv.showDel = false">
                         <el-badge :value="conv.unread_count" :hidden="conv.unread_count === 0" class="avatar-badge">
                             <el-avatar :size="40">{{ (conv.counterpart_name || 'U').charAt(0).toUpperCase()
-                            }}</el-avatar>
+                                }}</el-avatar>
                         </el-badge>
                         <div class="conv-info">
                             <div class="conv-name">{{ conv.counterpart_name }}</div>
@@ -38,6 +38,7 @@
                         <div class="history-inner">
                             <div v-for="msg in messageList" :key="msg.message_id" class="msg-row"
                                 :class="{ 'msg-mine': isMyMessage(msg) }">
+
                                 <el-avatar v-if="!isMyMessage(msg)" :size="32" class="msg-avatar-left">
                                     {{ currentChatUser.username.charAt(0).toUpperCase() }}
                                 </el-avatar>
@@ -77,13 +78,13 @@ import { ref, onMounted, nextTick, onUnmounted, computed } from 'vue';
 import request from '../utils/request';
 import { useUserStore } from '../stores/user';
 import { useRoute } from 'vue-router';
-// ✅ 新增：引入 Delete 图标和 ElMessageBox
 import { Delete } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
 const userStore = useUserStore();
 const route = useRoute();
 
+// 计算我的 ID
 const myId = computed(() => userStore.userInfo?.user_id || userStore.userInfo?.id);
 
 const conversations = ref<any[]>([]);
@@ -105,7 +106,6 @@ const fetchConversations = async () => {
     try {
         const res: any = await request.get('/messages/contacts');
         if (res.code === 200) {
-            // 保留 showDel 状态
             const oldMap = new Map(conversations.value.map(c => [c.counterpart_id, c.showDel]));
 
             conversations.value = res.data.map((c: any) => ({
@@ -132,7 +132,7 @@ const selectUser = async (conv: any) => {
     startMsgPolling(conv.counterpart_id);
 };
 
-// ✅ 新增：删除会话逻辑
+// 删除会话逻辑
 const handleDeleteConv = async (conv: any) => {
     try {
         await ElMessageBox.confirm('确定删除该会话及所有聊天记录吗？此操作不可恢复。', '删除确认', {
@@ -144,7 +144,6 @@ const handleDeleteConv = async (conv: any) => {
         const res: any = await request.delete(`/messages/conversations/${conv.counterpart_id}`);
         if (res.code === 200) {
             ElMessage.success('删除成功');
-            // 如果删除的是当前正在聊的，清空右侧
             if (currentChatUser.value?.user_id === conv.counterpart_id) {
                 currentChatUser.value = null;
                 messageList.value = [];
@@ -152,9 +151,7 @@ const handleDeleteConv = async (conv: any) => {
             }
             fetchConversations();
         }
-    } catch (e) {
-        // 取消或失败
-    }
+    } catch (e) { }
 };
 
 // 3. 消息轮询
@@ -292,7 +289,6 @@ onUnmounted(() => {
     gap: 12px;
     transition: background-color 0.2s;
     position: relative;
-    /* 为删除按钮定位 */
 }
 
 .conv-item:hover {
@@ -334,7 +330,6 @@ onUnmounted(() => {
     text-overflow: ellipsis;
 }
 
-/* ✅ 新增：删除按钮样式 */
 .del-btn {
     position: absolute;
     right: 10px;
@@ -389,15 +384,21 @@ onUnmounted(() => {
     background: #fff;
 }
 
+/* 消息行基础样式 */
 .msg-row {
     display: flex;
     margin-bottom: 20px;
     align-items: flex-start;
     animation: fadeIn 0.3s ease;
+    width: 100%;
 }
 
+/* 关键修改：如果是我的消息 */
+/* 1. justify-content: flex-end -> 将整个内容推到右边 */
+/* 2. 不要使用 row-reverse -> 保持 DOM 顺序：[Wrapper] [Avatar] */
+/* 这样在 flex-end 时，Wrapper 在左，Avatar 在右 */
 .msg-row.msg-mine {
-    flex-direction: row-reverse;
+    justify-content: flex-end;
 }
 
 .msg-avatar-left {
@@ -407,6 +408,7 @@ onUnmounted(() => {
 
 .msg-avatar-right {
     margin-left: 10px;
+    /* 在 Wrapper 和 Avatar 之间添加间距 */
 }
 
 .msg-content-wrapper {
@@ -415,6 +417,7 @@ onUnmounted(() => {
     flex-direction: column;
 }
 
+/* 我的消息内容内部靠右对齐 (例如时间戳) */
 .msg-mine .msg-content-wrapper {
     align-items: flex-end;
 }
@@ -430,6 +433,8 @@ onUnmounted(() => {
     word-break: break-all;
     position: relative;
     border: 1px solid #eee;
+    text-align: left;
+    /* 气泡内的文字保持左对齐 */
 }
 
 .msg-mine .msg-bubble {

@@ -2,6 +2,9 @@
 import { ref, onMounted } from 'vue'
 import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 interface Order {
     order_id: number
@@ -10,7 +13,8 @@ interface Order {
     item_title: string
     main_image: string | null
     created_at: string
-    seller_name?: string
+    seller_name: string
+    seller_id: number // 新增
     my_rating?: number
 }
 
@@ -26,10 +30,8 @@ const reviewForm = ref({ rating: 5, content: '' })
 const showComplaintModal = ref(false)
 const complaintForm = ref({ reason: '', proof_img: null as File | null, target_type: 3 })
 
-// 图片处理
 const getImageUrl = (img: string | null) => img || 'https://via.placeholder.com/100x100?text=No+Image'
 
-// 状态显示辅助函数
 const getStatusTag = (status: number) => {
     const map = [
         { text: '待付款', type: 'warning' },
@@ -51,6 +53,17 @@ const fetchOrders = async () => {
     } finally {
         loading.value = false
     }
+}
+
+// --- 核心功能：联系卖家 ---
+const contactSeller = (order: Order) => {
+    router.push({
+        path: '/messages',
+        query: {
+            to: order.seller_id,
+            name: order.seller_name
+        }
+    })
 }
 
 // --- 支付逻辑 ---
@@ -175,7 +188,7 @@ const submitComplaint = async () => {
             proof_img: 'placeholder_for_demo.jpg'
         })
         if (res.code === 200) {
-            ElMessage.success('投诉提交成功，管理员将介入处理')
+            ElMessage.success('提交成功，管理员将介入处理')
             showComplaintModal.value = false
         }
     } catch (err) {
@@ -232,24 +245,29 @@ onMounted(() => {
                         <div v-if="order.status === 0" class="btn-group">
                             <el-button type="primary" size="small"
                                 @click="openPayModal(order.order_id)">立即支付</el-button>
-                            <el-button size="small" @click="cancelOrder(order.order_id)">取消订单</el-button>
+                            <el-button size="small" @click="contactSeller(order)">联系卖家</el-button>
+                            <el-button size="small" type="danger" plain
+                                @click="cancelOrder(order.order_id)">取消订单</el-button>
                         </div>
                         <div v-if="order.status === 1" class="btn-group">
                             <el-button type="danger" plain size="small"
                                 @click="openComplaintModal(order.order_id)">投诉/催发货</el-button>
+                            <el-button size="small" @click="contactSeller(order)">联系卖家</el-button>
                         </div>
                         <div v-if="order.status === 2" class="btn-group">
                             <el-button type="primary" size="small"
                                 @click="confirmReceipt(order.order_id)">确认收货</el-button>
+                            <el-button size="small" @click="contactSeller(order)">联系卖家</el-button>
                             <el-button type="text" size="small"
-                                @click="openComplaintModal(order.order_id)">申请售后</el-button>
+                                @click="openComplaintModal(order.order_id)">投诉/售后</el-button>
                         </div>
                         <div v-if="order.status === 3" class="btn-group">
                             <el-button v-if="!order.my_rating" type="primary" plain size="small"
                                 @click="openReviewModal(order.order_id)">评价商品</el-button>
-                            <el-tag v-else type="warning" size="small">已评价 ({{ order.my_rating }}⭐)</el-tag>
+                            <el-tag v-else type="warning" size="small">已评价</el-tag>
+                            <el-button size="small" @click="contactSeller(order)">联系卖家</el-button>
                             <el-button type="text" size="small"
-                                @click="openComplaintModal(order.order_id)">交易投诉</el-button>
+                                @click="openComplaintModal(order.order_id)">投诉</el-button>
                         </div>
                         <div v-if="order.status === 4">
                             <span class="info-text">订单已关闭</span>
@@ -291,7 +309,7 @@ onMounted(() => {
             </template>
         </el-dialog>
 
-        <el-dialog v-model="showComplaintModal" title="发起投诉" width="400px" align-center>
+        <el-dialog v-model="showComplaintModal" title="投诉/催发货" width="400px" align-center>
             <el-form label-position="top">
                 <el-form-item label="投诉原因">
                     <el-input v-model="complaintForm.reason" type="textarea" placeholder="请详细描述您遇到的问题" :rows="3" />
@@ -302,7 +320,7 @@ onMounted(() => {
             </el-form>
             <template #footer>
                 <el-button @click="showComplaintModal = false">取消</el-button>
-                <el-button type="danger" @click="submitComplaint">提交投诉</el-button>
+                <el-button type="danger" @click="submitComplaint">提交</el-button>
             </template>
         </el-dialog>
     </div>
@@ -403,7 +421,7 @@ onMounted(() => {
 .btn-group {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     align-items: flex-end;
 }
 

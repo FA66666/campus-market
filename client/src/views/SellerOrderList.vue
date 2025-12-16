@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -7,39 +7,55 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
-// --- 订单相关接口与数据 ---
+// --- 接口定义 ---
 interface SaleOrder {
     order_id: number
     item_title: string
     main_image: string | null
     total_amount: string
     status: number
+    buyer_id: number
     buyer_name: string
     delivery_snapshot: string
     receiver_phone: string
     created_at: string
 }
 
-// --- 商品相关接口与数据 ---
 interface MyItem {
     item_id: number
     title: string
     price: number
     stock_quantity: number
-    status: number // 0: 上架, 1: 下架 (根据业务定义，此处假设 0 为正常上架)
+    status: number
     main_image: string
+    description?: string
     created_at: string
-    view_count?: number
 }
 
+// --- 状态变量 ---
 const activeTab = ref('orders')
 const loading = ref(false)
 const salesList = ref<SaleOrder[]>([])
 const myItems = ref<MyItem[]>([])
 
+// 编辑相关
+const editVisible = ref(false)
+const submitting = ref(false)
+const editFile = ref<File | null>(null)
+// ✅ 新增：图片预览地址
+const previewImage = ref('')
+
+const editForm = reactive({
+    item_id: 0,
+    title: '',
+    price: 0,
+    stock_quantity: 0,
+    description: '',
+    status: 0
+})
+
 const getImageUrl = (img: string | null) => img || 'https://via.placeholder.com/100x100?text=No+Image'
 
-// 订单状态 Tag
 const getStatusTag = (status: number) => {
     const map = [
         { text: '待付款', type: 'warning' },
@@ -51,7 +67,7 @@ const getStatusTag = (status: number) => {
     return map[status] || { text: '未知', type: '' }
 }
 
-// 获取销售订单
+// --- API 请求 ---
 const fetchSales = async () => {
     loading.value = true
     try {
@@ -64,7 +80,6 @@ const fetchSales = async () => {
     }
 }
 
-// 获取我发布的商品 (新增逻辑)
 const fetchMyItems = async () => {
     loading.value = true
     try {
@@ -77,7 +92,6 @@ const fetchMyItems = async () => {
     }
 }
 
-// 处理发货
 const handleShip = async (orderId: number) => {
     try {
         await ElMessageBox.confirm('确认按照买家地址发货吗？', '发货确认', {
@@ -96,7 +110,82 @@ const handleShip = async (orderId: number) => {
     }
 }
 
-// 切换 Tab 时刷新数据
+const contactBuyer = (order: SaleOrder) => {
+    router.push({
+        path: '/messages',
+        query: {
+            to: order.buyer_id,
+            name: order.buyer_name
+        }
+    })
+}
+
+// --- 编辑功能 ---
+
+// 打开编辑弹窗
+const openEditModal = (item: MyItem) => {
+    editForm.item_id = item.item_id
+    editForm.title = item.title
+    editForm.price = Number(item.price)
+    editForm.stock_quantity = item.stock_quantity
+    editForm.description = item.description || ''
+    editForm.status = item.status
+
+    // 重置文件选择
+    editFile.value = null
+    // ✅ 设置初始预览图为原图
+    previewImage.value = getImageUrl(item.main_image)
+
+    editVisible.value = true
+}
+
+// 监听文件选择
+const handleEditFileChange = (e: Event) => {
+    const target = e.target as HTMLInputElement
+    if (target.files && target.files.length > 0) {
+        const file = target.files[0]
+        if (file) {
+            editFile.value = file
+            previewImage.value = URL.createObjectURL(file)
+        }
+    }
+}
+
+// 提交编辑
+const submitEdit = async () => {
+    if (!editForm.title || editForm.price < 0) {
+        ElMessage.warning('请检查标题和价格')
+        return
+    }
+
+    submitting.value = true
+    try {
+        const formData = new FormData()
+        formData.append('title', editForm.title)
+        formData.append('price', String(editForm.price))
+        formData.append('stock_quantity', String(editForm.stock_quantity))
+        formData.append('description', editForm.description)
+        formData.append('status', String(editForm.status))
+
+        if (editFile.value) {
+            formData.append('main_image', editFile.value)
+        }
+
+        const res: any = await request.put(`/items/${editForm.item_id}`, formData)
+
+        if (res.code === 200) {
+            ElMessage.success('修改成功')
+            editVisible.value = false
+            fetchMyItems()
+        }
+    } catch (e) {
+        // 错误提示由拦截器处理
+    } finally {
+        submitting.value = false
+    }
+}
+
+// --- 其他逻辑 ---
 const handleTabClick = () => {
     if (activeTab.value === 'orders') {
         fetchSales()
@@ -174,10 +263,12 @@ onMounted(() => fetchSales())
                                         @click="handleShip(order.order_id)">
                                         立即发货
                                     </el-button>
-                                    <span v-else-if="order.status === 0" class="status-text pending">等待买家付款</span>
-                                    <span v-else-if="order.status === 2" class="status-text shipping">等待买家收货</span>
-                                    <span v-else-if="order.status === 3" class="status-text success">订单已完成</span>
-                                    <span v-else class="status-text info">订单已关闭</span>
+                                    <el-button size="small" @click="contactBuyer(order)">联系买家</el-button>
+                                    <div style="margin-top: 5px;">
+                                        <span v-if="order.status === 0" class="status-text pending">等待买家付款</span>
+                                        <span v-else-if="order.status === 2" class="status-text shipping">等待买家收货</span>
+                                        <span v-else-if="order.status === 3" class="status-text success">订单已完成</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -219,18 +310,62 @@ onMounted(() => fetchSales())
                             </template>
                         </el-table-column>
                         <el-table-column label="操作">
-                            <template #default>
-                                <el-button size="small" type="primary" link>编辑</el-button>
+                            <template #default="scope">
+                                <el-button size="small" type="primary" link @click="openEditModal(scope.row)">
+                                    编辑
+                                </el-button>
                             </template>
                         </el-table-column>
                     </el-table>
                 </div>
             </el-tab-pane>
         </el-tabs>
+
+        <el-dialog v-model="editVisible" title="编辑商品信息" width="500px">
+            <el-form :model="editForm" label-width="80px">
+                <el-form-item label="商品标题">
+                    <el-input v-model="editForm.title" />
+                </el-form-item>
+
+                <el-form-item label="更换图片">
+                    <div class="upload-area">
+                        <el-image v-if="previewImage" :src="previewImage"
+                            style="width: 100px; height: 100px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #ddd;"
+                            fit="cover" />
+
+                        <input type="file" @change="handleEditFileChange" accept="image/*" />
+                        <div style="font-size: 12px; color: #999; margin-top: 5px;">如果不修改图片，请留空</div>
+                    </div>
+                </el-form-item>
+
+                <el-form-item label="价格">
+                    <el-input-number v-model="editForm.price" :precision="2" :step="1" :min="0" style="width: 100%" />
+                </el-form-item>
+                <el-form-item label="库存">
+                    <el-input-number v-model="editForm.stock_quantity" :min="0" :step="1" style="width: 100%" />
+                </el-form-item>
+                <el-form-item label="状态">
+                    <el-radio-group v-model="editForm.status">
+                        <el-radio :label="0">出售中</el-radio>
+                        <el-radio :label="1">下架</el-radio>
+                    </el-radio-group>
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input v-model="editForm.description" type="textarea" rows="3" />
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="editVisible = false">取消</el-button>
+                    <el-button type="primary" @click="submitEdit" :loading="submitting">保存修改</el-button>
+                </span>
+            </template>
+        </el-dialog>
     </div>
 </template>
 
 <style scoped>
+/* 此处保留原有的样式代码 */
 .page-container {
     max-width: 1000px;
     margin: 20px auto;
@@ -325,6 +460,13 @@ onMounted(() => fetchSales())
     border-left: 1px solid #f0f2f5;
 }
 
+.action-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+}
+
 .status-text {
     font-size: 13px;
     font-weight: 500;
@@ -344,5 +486,12 @@ onMounted(() => fetchSales())
 
 .status-text.info {
     color: #909399;
+}
+
+/* ✅ 新增：上传区域样式微调 */
+.upload-area {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }
 </style>

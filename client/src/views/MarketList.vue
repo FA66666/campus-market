@@ -3,7 +3,10 @@ import { ref, onMounted } from 'vue'
 import request from '../utils/request'
 import { useCartStore } from '../stores/cart'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ShoppingCart } from '@element-plus/icons-vue'
+import { ShoppingCart, ChatDotRound } from '@element-plus/icons-vue' // 新增 ChatDotRound
+import { useRouter } from 'vue-router' // 新增
+
+const router = useRouter()
 
 // 定义商品接口
 interface Item {
@@ -31,7 +34,6 @@ const phone = ref('')
 // --- 详情弹窗相关状态 ---
 const showDetailModal = ref(false)
 const selectedItem = ref<Item | null>(null)
-// ✅ 新增：详情页购买数量，默认为 1
 const buyCount = ref(1)
 
 // 图片处理
@@ -57,30 +59,39 @@ const fetchItems = async () => {
 // 打开详情弹窗
 const openDetailModal = (item: Item) => {
     selectedItem.value = item
-    buyCount.value = 1 // ✅ 每次打开重置为 1
+    buyCount.value = 1
     showDetailModal.value = true
 }
 
-// ✅ 修改：加入购物车 (支持传入数量)
+// 加入购物车
 const addToCart = (item: Item, event?: Event, count: number = 1) => {
     if (event) event.stopPropagation()
-
     if (item.stock_quantity <= 0) {
         ElMessage.warning('该商品暂时缺货')
         return
     }
-
-    // 调用 store 的 addItem，传入数量
     cartStore.addItem(item, count)
     ElMessage.success(`已将 ${count} 件 "${item.title}" 加入购物车`)
 }
 
-// ✅ 修改：在详情页加入购物车 (使用 buyCount)
+// 在详情页加入购物车
 const addToCartFromDetail = () => {
     if (selectedItem.value) {
         addToCart(selectedItem.value, undefined, buyCount.value)
         showDetailModal.value = false
     }
+}
+
+// ✅ 新增：联系卖家
+const contactSeller = (item: Item) => {
+    // 跳转到消息中心，携带卖家ID和名字
+    router.push({
+        path: '/messages',
+        query: {
+            to: item.seller_id,
+            name: item.seller_name
+        }
+    })
 }
 
 // 提交订单
@@ -189,7 +200,7 @@ onMounted(() => {
                         <div class="desc-text">{{ selectedItem.description || '暂无描述' }}</div>
                     </div>
 
-                    <div class="detail-actions"
+                    <div class="detail-actions-row"
                         style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
                         <span>购买数量:</span>
                         <el-input-number v-model="buyCount" :min="1" :max="selectedItem.stock_quantity" />
@@ -198,6 +209,7 @@ onMounted(() => {
             </div>
             <template #footer>
                 <span class="dialog-footer">
+                    <el-button :icon="ChatDotRound" @click="contactSeller(selectedItem!)">联系卖家</el-button>
                     <el-button @click="showDetailModal = false">关闭</el-button>
                     <el-button type="primary" @click="addToCartFromDetail"
                         :disabled="selectedItem?.stock_quantity! <= 0">
@@ -388,7 +400,6 @@ onMounted(() => {
     width: 100%;
 }
 
-/* 悬浮购物车 */
 .cart-float {
     position: fixed;
     bottom: 50px;
@@ -396,7 +407,6 @@ onMounted(() => {
     z-index: 1000;
 }
 
-/* 详情弹窗样式 */
 .detail-layout {
     display: flex;
     gap: 20px;
@@ -439,7 +449,6 @@ onMounted(() => {
     overflow-y: auto;
 }
 
-/* 购物车列表样式 */
 .cart-list-container {
     max-height: 300px;
     overflow-y: auto;

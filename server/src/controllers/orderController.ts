@@ -8,7 +8,6 @@ export const createOrder = async (
 ): Promise<void> => {
   try {
     const buyerId = (req as any).user.userId;
-    // 接收 items 数组
     const { items, address, phone } = req.body;
 
     if (
@@ -61,8 +60,7 @@ export const createOrder = async (
           phone,
         ]);
 
-        const rows = results as any[]; // 强制类型转换
-        // 存储过程返回结果在第二个语句 (Index 1) 的第一行 (Index 0)
+        const rows = results as any[];
         const output = rows[1] ? rows[1][0] : null;
 
         if (output && output.res_code === 200) {
@@ -100,17 +98,21 @@ export const getMyOrders = async (
 ): Promise<void> => {
   try {
     const buyerId = (req as any).user.userId;
+    // ✅ 修改：关联 Users 表获取 seller_name，并查询 seller_id
     const sql = `
       SELECT 
         o.order_id, 
         o.total_amount, 
         o.status, 
         o.created_at,
+        o.seller_id,           -- 新增
+        u.username AS seller_name, -- 新增
         i.title AS item_title, 
         i.main_image,
         r.rating AS my_rating,
         r.content AS my_review
       FROM Orders o
+      JOIN Users u ON o.seller_id = u.user_id  -- 关联卖家信息
       JOIN Order_Items oi ON o.order_id = oi.order_id
       JOIN Items i ON oi.item_id = i.item_id
       LEFT JOIN Reviews r ON o.order_id = r.order_id AND r.user_id = o.buyer_id
@@ -171,17 +173,13 @@ export const getMySales = async (
   }
 };
 
-// 5. 支付订单 (包含凭证上传)
-// ✅ 关键修改：处理 multipart/form-data
+// 5. 支付订单
 export const payOrder = async (req: Request, res: Response): Promise<void> => {
   try {
     const buyerId = (req as any).user.userId;
     const orderId = req.params.id;
 
-    // multer 中间件处理后：
-    // 普通文本字段在 req.body 中
     const { transaction_ref } = req.body;
-    // 文件信息在 req.file 中
     const file = (req as any).file;
 
     if (!transaction_ref || !file) {
@@ -189,8 +187,6 @@ export const payOrder = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 构建数据库存储路径 (相对路径，配合 index.ts 的 static 配置)
-    // 这里的路径格式为 /uploads/payment_proofs/文件名
     const payment_proof = `/uploads/payment_proofs/${file.filename}`;
 
     const [result]: any = await pool.query(

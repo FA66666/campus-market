@@ -35,15 +35,20 @@
                     <el-input-number v-model="form.stock_quantity" :min="1" :max="999" />
                 </el-form-item>
 
-                <el-form-item label="图片链接" required>
-                    <el-input v-model="form.main_image" placeholder="请输入图片URL (暂不支持上传)" />
-                    <div class="img-preview" v-if="form.main_image">
-                        <span>预览：</span>
-                        <el-image :src="form.main_image" style="width: 100px; height: 100px; border-radius: 4px;"
-                            fit="cover" />
-                    </div>
-                    <div class="help-text">测试可用图：https://images.unsplash.com/photo-1550009158-9ebf69173e03?w=500</div>
+                <el-form-item label="商品图片" required>
+                    <el-upload v-model:file-list="fileList" action="#" list-type="picture-card" :auto-upload="false"
+                        :on-preview="handlePictureCardPreview" :on-remove="handleRemove" :limit="9" multiple
+                        accept="image/*">
+                        <el-icon>
+                            <Plus />
+                        </el-icon>
+                    </el-upload>
+                    <div class="help-text">第一张图片将作为商品封面，后续图片将显示在详情页中。</div>
                 </el-form-item>
+
+                <el-dialog v-model="dialogVisible">
+                    <img w-full :src="dialogImageUrl" alt="Preview Image" style="width: 100%" />
+                </el-dialog>
 
                 <el-form-item label="商品描述">
                     <el-input v-model="form.description" type="textarea" :rows="4" placeholder="描述一下商品的新旧程度、入手渠道等..." />
@@ -63,35 +68,77 @@ import { reactive, ref } from 'vue';
 import request from '../utils/request';
 import { ElMessage } from 'element-plus';
 import { useRouter } from 'vue-router';
+import { Plus } from '@element-plus/icons-vue';
+import type { UploadProps, UploadUserFile } from 'element-plus';
 
 const router = useRouter();
 const submitting = ref(false);
 
+// 表单数据
 const form = reactive({
     title: '',
     category_id: null,
     price: 0,
     stock_quantity: 1,
-    main_image: '',
     description: ''
 });
 
+// ✅ 上传相关状态
+const fileList = ref<UploadUserFile[]>([]);
+const dialogImageUrl = ref('');
+const dialogVisible = ref(false);
+
+// 移除图片回调
+const handleRemove: UploadProps['onRemove'] = (uploadFile, uploadFiles) => {
+    console.log(uploadFile, uploadFiles);
+};
+
+// 预览图片回调
+const handlePictureCardPreview: UploadProps['onPreview'] = (uploadFile) => {
+    dialogImageUrl.value = uploadFile.url!;
+    dialogVisible.value = true;
+};
+
+// 提交表单
 const onSubmit = async () => {
-    if (!form.title || !form.category_id || !form.price || !form.main_image) {
+    if (!form.title || !form.category_id || !form.price) {
         ElMessage.warning('请填写完整的必要信息');
+        return;
+    }
+
+    // ✅ 校验：至少上传一张图
+    if (fileList.value.length === 0) {
+        ElMessage.warning('请至少上传一张商品图片');
         return;
     }
 
     submitting.value = true;
     try {
-        // 调用我们在后端写的 createItem 接口
-        const res: any = await request.post('/items', form);
+        // ✅ 使用 FormData 构建提交数据
+        const formData = new FormData();
+        formData.append('title', form.title);
+        formData.append('category_id', String(form.category_id));
+        formData.append('price', String(form.price));
+        formData.append('stock_quantity', String(form.stock_quantity));
+        formData.append('description', form.description || '');
+
+        // 循环添加所有图片文件
+        // 注意：后端接收的字段名必须是 'images'，与路由中的 upload.array('images') 对应
+        fileList.value.forEach((file) => {
+            if (file.raw) {
+                formData.append('images', file.raw);
+            }
+        });
+
+        // ✅ 关键修改：移除 headers 配置，让 Axios 自动处理 Boundary
+        const res: any = await request.post('/items', formData);
+
         if (res.code === 201) {
             ElMessage.success('发布成功！');
-            router.push('/'); // 发布成功后跳回首页
+            router.push('/');
         }
     } catch (error) {
-        // 错误在拦截器里处理了，这里不需要多写
+        // 错误已由拦截器处理
     } finally {
         submitting.value = false;
     }
@@ -108,15 +155,7 @@ const onSubmit = async () => {
 .help-text {
     font-size: 12px;
     color: #999;
-    margin-top: 5px;
-}
-
-.img-preview {
     margin-top: 10px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    color: #666;
+    width: 100%;
 }
 </style>

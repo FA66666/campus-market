@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { Clock } from '@element-plus/icons-vue'
 
 const router = useRouter()
+
+// ✅ 配置：超时时间设为 1 分钟 (60000毫秒)
+const TIMEOUT_DURATION = 1 * 60 * 1000
 
 interface Order {
     order_id: number
@@ -14,7 +18,7 @@ interface Order {
     main_image: string | null
     created_at: string
     seller_name: string
-    seller_id: number // 新增
+    seller_id: number
     my_rating?: number
 }
 
@@ -30,12 +34,72 @@ const reviewForm = ref({ rating: 5, content: '' })
 const showComplaintModal = ref(false)
 const complaintForm = ref({ reason: '', proof_img: null as File | null, target_type: 3 })
 
+// --- 倒计时与自动取消逻辑 (核心修改) ---
+const currentTime = ref(Date.now())
+let timer: any = null
+// 用来记录正在发起取消请求的订单ID，防止重复请求
+const processingOrders = ref<Set<number>>(new Set())
+
+const getRemainingMs = (createTimeStr: string) => {
+    const createTime = new Date(createTimeStr).getTime()
+    const expireTime = createTime + TIMEOUT_DURATION
+    return expireTime - currentTime.value
+}
+
+const formatCountdown = (createTimeStr: string) => {
+    const diff = getRemainingMs(createTimeStr)
+    if (diff <= 0) return '即将取消...'
+
+    const m = Math.floor(diff / 60000)
+    const s = Math.floor((diff % 60000) / 1000)
+    return `${m}分${s}秒`
+}
+
+const isExpired = (createTimeStr: string) => {
+    return getRemainingMs(createTimeStr) <= 0
+}
+
+// ✅ 新增：静默自动取消函数
+const handleAutoCancel = async (orderId: number) => {
+    // 如果已经在处理中，直接返回
+    if (processingOrders.value.has(orderId)) return
+
+    processingOrders.value.add(orderId)
+    console.log(`[AutoCancel] 订单 ${orderId} 已超时，正在请求取消...`)
+
+    try {
+        const res: any = await request.post(`/orders/${orderId}/cancel`)
+        if (res.code === 200) {
+            ElMessage.warning(`订单 ${orderId} 因超时已自动取消`)
+            // 刷新列表
+            await fetchOrders()
+        }
+    } catch (e) {
+        console.error(`订单 ${orderId} 自动取消失败`, e)
+    } finally {
+        // 无论成功失败，移除处理标记（如果失败了，下一次轮询还会尝试）
+        processingOrders.value.delete(orderId)
+    }
+}
+
+// ✅ 新增：每秒检查是否有订单需要取消
+const checkAutoCancel = () => {
+    orders.value.forEach(order => {
+        // 只有待付款(0)的订单需要检查
+        if (order.status === 0) {
+            if (isExpired(order.created_at)) {
+                handleAutoCancel(order.order_id)
+            }
+        }
+    })
+}
+
 const getImageUrl = (img: string | null) => img || 'https://via.placeholder.com/100x100?text=No+Image'
 
 const getStatusTag = (status: number) => {
     const map = [
         { text: '待付款', type: 'warning' },
-        { text: '待发货', type: 'primary' },
+        { text: '待发货', type: 'danger' },
         { text: '待收货', type: 'success' },
         { text: '已完成', type: 'info' },
         { text: '已取消', type: 'info' }
@@ -44,7 +108,9 @@ const getStatusTag = (status: number) => {
 }
 
 const fetchOrders = async () => {
-    loading.value = true
+    // 注意：如果是自动刷新引发的调用，最好不要全屏 loading，体验不好
+    // 这里简单处理，如果已经在 loading 就不重复设 true
+    if (!loading.value) loading.value = true
     try {
         const res: any = await request.get('/orders/my')
         if (res.code === 200) orders.value = res.data
@@ -55,7 +121,7 @@ const fetchOrders = async () => {
     }
 }
 
-// --- 核心功能：联系卖家 ---
+// 联系卖家
 const contactSeller = (order: Order) => {
     router.push({
         path: '/messages',
@@ -66,7 +132,7 @@ const contactSeller = (order: Order) => {
     })
 }
 
-// --- 支付逻辑 ---
+// 支付逻辑
 const openPayModal = (id: number) => {
     activeOrderId.value = id
     payForm.value = { transaction_ref: '', proof_img: null }
@@ -103,7 +169,7 @@ const submitPayment = async () => {
     }
 }
 
-// --- 确认收货 ---
+// 确认收货
 const confirmReceipt = async (id: number) => {
     try {
         await ElMessageBox.confirm('确认收到商品了吗？并将打款给卖家。', '收货确认', {
@@ -122,7 +188,7 @@ const confirmReceipt = async (id: number) => {
     }
 }
 
-// --- 取消订单 ---
+// 手动取消订单
 const cancelOrder = async (id: number) => {
     try {
         await ElMessageBox.confirm('确定取消该订单吗？', '取消订单', {
@@ -141,7 +207,7 @@ const cancelOrder = async (id: number) => {
     }
 }
 
-// --- 评价逻辑 ---
+// 评价逻辑
 const openReviewModal = (id: number) => {
     activeOrderId.value = id
     reviewForm.value = { rating: 5, content: '' }
@@ -165,7 +231,7 @@ const submitReview = async () => {
     }
 }
 
-// --- 投诉逻辑 ---
+// 投诉逻辑
 const openComplaintModal = (id: number) => {
     activeOrderId.value = id
     complaintForm.value = { reason: '', proof_img: null, target_type: 3 }
@@ -198,6 +264,15 @@ const submitComplaint = async () => {
 
 onMounted(() => {
     fetchOrders()
+    // 启动定时器，每秒更新时间并检查超时
+    timer = setInterval(() => {
+        currentTime.value = Date.now()
+        checkAutoCancel()
+    }, 1000)
+})
+
+onUnmounted(() => {
+    if (timer) clearInterval(timer)
 })
 </script>
 
@@ -207,7 +282,7 @@ onMounted(() => {
             <h2>🧾 我的订单</h2>
         </div>
 
-        <el-skeleton v-if="loading" :rows="3" animated />
+        <el-skeleton v-if="loading && orders.length === 0" :rows="3" animated />
 
         <el-empty v-if="!loading && orders.length === 0" description="暂无订单记录" />
 
@@ -216,7 +291,9 @@ onMounted(() => {
                 <template #header>
                     <div class="order-header">
                         <span class="order-no">订单号: {{ order.order_id }}</span>
-                        <span class="order-time">{{ new Date(order.created_at).toLocaleString() }}</span>
+                        <div class="header-right">
+                            <span class="order-time">{{ new Date(order.created_at).toLocaleString() }}</span>
+                        </div>
                     </div>
                 </template>
 
@@ -238,13 +315,25 @@ onMounted(() => {
                             <el-tag :type="getStatusTag(order.status).type as any">
                                 {{ getStatusTag(order.status).text }}
                             </el-tag>
+
+                            <div v-if="order.status === 0" class="countdown-tip">
+                                <el-icon>
+                                    <Clock />
+                                </el-icon>
+                                <span v-if="!isExpired(order.created_at)">
+                                    剩余 {{ formatCountdown(order.created_at) }}
+                                </span>
+                                <span v-else class="text-expired">正在取消...</span>
+                            </div>
                         </div>
                     </div>
 
                     <div class="order-actions">
                         <div v-if="order.status === 0" class="btn-group">
-                            <el-button type="primary" size="small"
-                                @click="openPayModal(order.order_id)">立即支付</el-button>
+                            <el-button type="primary" size="small" :disabled="isExpired(order.created_at)"
+                                @click="openPayModal(order.order_id)">
+                                {{ isExpired(order.created_at) ? '已超时' : '立即支付' }}
+                            </el-button>
                             <el-button size="small" @click="contactSeller(order)">联系卖家</el-button>
                             <el-button size="small" type="danger" plain
                                 @click="cancelOrder(order.order_id)">取消订单</el-button>
@@ -409,6 +498,20 @@ onMounted(() => {
     font-size: 18px;
     font-weight: bold;
     color: #f56c6c !important;
+}
+
+/* 倒计时样式 */
+.countdown-tip {
+    font-size: 12px;
+    color: #f56c6c;
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.text-expired {
+    color: #909399;
 }
 
 .order-actions {

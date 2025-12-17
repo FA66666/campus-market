@@ -26,7 +26,7 @@ export const getMarketItems = async (
 
     sql += " ORDER BY created_at DESC";
 
-    const [rows] = await pool.execute<RowDataPacket[]>(sql, params);
+    const [rows] = await pool.query<RowDataPacket[]>(sql, params);
 
     res.json({
       code: 200,
@@ -45,7 +45,7 @@ export const getMyItems = async (
   res: Response
 ): Promise<void> => {
   try {
-    const userId = req.user.userId;
+    const userId = (req as any).user.userId;
     const sql =
       "SELECT * FROM Items WHERE seller_id = ? ORDER BY created_at DESC";
     const [rows] = await pool.query(sql, [userId]);
@@ -61,30 +61,60 @@ export const getMyItems = async (
   }
 };
 
-// 3. 发布新商品
+// ✅ 3. 发布新商品 (修复 500 错误核心版 + 类型安全检查)
 export const createItem = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const sellerId = req.user.userId;
-    const {
-      category_id,
-      title,
-      description,
-      price,
-      stock_quantity,
-      main_image,
-    } = req.body;
+    // ✅ 增加安全检查：确保 user 存在
+    const sellerId = (req as any).user?.userId;
 
-    if (!category_id || !title || !price || !main_image) {
-      res
-        .status(400)
-        .json({ message: "关键信息（分类、标题、价格、主图）不能为空" });
+    if (!sellerId) {
+      res.status(401).json({ message: "用户未登录或Token无效" });
       return;
     }
 
-    const [result] = await pool.execute<any>(
+    // 🔍 调试日志
+    console.log("Create Item Body:", req.body);
+
+    // ⚠️ 关键修改：显式类型转换
+    // FormData 传过来的是字符串，必须转为 Number 才能存入 INT/DECIMAL 字段
+    const category_id = Number(req.body.category_id);
+    const price = Number(req.body.price);
+    const stock_quantity = Number(req.body.stock_quantity);
+    const title = req.body.title;
+    let description = req.body.description || "";
+
+    // 获取上传的文件
+    const files = req.files as Express.Multer.File[];
+
+    // 校验
+    if (!category_id || !title || isNaN(price)) {
+      res.status(400).json({ message: "标题、分类、价格为必填项且格式需正确" });
+      return;
+    }
+    if (!files || files.length === 0) {
+      res.status(400).json({ message: "请至少上传一张商品主图" });
+      return;
+    }
+
+    // 1. 处理封面图 (第一张)
+    // 确保路径以 /uploads 开头
+    const mainImage = `/uploads/items/${files[0].filename}`;
+
+    // 2. 处理附图 (追加到描述)
+    if (files.length > 1) {
+      let extraImagesHtml = "\n\n<br><strong>更多细节图：</strong><br>";
+      for (let i = 1; i < files.length; i++) {
+        const imgPath = `/uploads/items/${files[i].filename}`;
+        extraImagesHtml += `<img src="${imgPath}" style="max-width:100%; margin-top:10px; border-radius:4px;"><br>`;
+      }
+      description += extraImagesHtml;
+    }
+
+    // 3. 插入数据库 (⚠️ 改用 pool.query，兼容性更好)
+    const [result]: any = await pool.query(
       `INSERT INTO Items 
       (seller_id, category_id, title, description, price, stock_quantity, status, main_image) 
       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
@@ -95,9 +125,11 @@ export const createItem = async (
         description,
         price,
         stock_quantity || 1,
-        main_image,
+        mainImage,
       ]
     );
+
+    console.log("商品发布成功，ID:", result.insertId);
 
     res.status(201).json({
       code: 201,
@@ -105,8 +137,9 @@ export const createItem = async (
       itemId: result.insertId,
     });
   } catch (error) {
-    console.error("发布商品失败:", error);
-    res.status(500).json({ message: "发布失败，请检查输入" });
+    // 打印完整错误堆栈，方便排查
+    console.error("发布商品严重错误:", error);
+    res.status(500).json({ message: "发布失败，请检查服务器日志" });
   }
 };
 
@@ -116,7 +149,7 @@ export const toggleCollect = async (
   res: Response
 ): Promise<void> => {
   try {
-    const userId = req.user.userId;
+    const userId = (req as any).user.userId;
     const itemId = req.params.id;
 
     const [rows]: any = await pool.query(
@@ -162,32 +195,32 @@ export const incrementView = async (
   }
 };
 
-// ✅ 6. 更新商品信息 (支持图片上传)
+// 6. 更新商品信息
 export const updateItem = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const sellerId = req.user.userId;
+    const sellerId = (req as any).user.userId;
     const itemId = req.params.id;
 
-    // 如果是 FormData 上传，req.body 中包含文本字段
-    const { title, price, stock_quantity, description, status } = req.body;
+    // 同样需要类型转换
+    const title = req.body.title;
+    const price = Number(req.body.price);
+    const stock_quantity = Number(req.body.stock_quantity);
+    const description = req.body.description;
+    const status = Number(req.body.status);
 
-    // 1. 基础 SQL
     let sql =
       "UPDATE Items SET title = ?, price = ?, stock_quantity = ?, description = ?, status = ?";
     const params: any[] = [title, price, stock_quantity, description, status];
 
-    // 2. 如果有文件上传，追加更新 main_image 字段
     if (req.file) {
-      // 这里的路径需要配合 express.static 使用
       const newImagePath = `/uploads/items/${req.file.filename}`;
       sql += ", main_image = ?";
       params.push(newImagePath);
     }
 
-    // 3. 加上 WHERE 条件，确保只能改自己的
     sql += " WHERE item_id = ? AND seller_id = ?";
     params.push(itemId, sellerId);
 

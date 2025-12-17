@@ -3,8 +3,8 @@ import { ref, onMounted } from 'vue'
 import request from '../utils/request'
 import { useCartStore } from '../stores/cart'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ShoppingCart, ChatDotRound } from '@element-plus/icons-vue' // 新增 ChatDotRound
-import { useRouter } from 'vue-router' // 新增
+import { ShoppingCart, ChatDotRound } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
@@ -36,9 +36,35 @@ const showDetailModal = ref(false)
 const selectedItem = ref<Item | null>(null)
 const buyCount = ref(1)
 
-// 图片处理
+// ✅ 修改：图片路径处理，支持本地上传的图片
 const getImageUrl = (img: string | null) => {
-    return img || 'https://via.placeholder.com/300x300?text=No+Image'
+    if (!img) return 'https://via.placeholder.com/300x300?text=No+Image';
+    // 如果是本地上传的图片 (以 /uploads 开头)，需要补全后端地址
+    if (img.startsWith('/uploads')) {
+        return `http://localhost:3000${img}`;
+    }
+    return img;
+}
+
+// ✅ 新增：从商品信息中提取所有图片（封面 + 描述中的图片）
+const getItemImages = (item: Item) => {
+    const list: string[] = [];
+    
+    // 1. 先加入封面图
+    if (item.main_image) list.push(item.main_image);
+    
+    // 2. 从描述 HTML 中正则提取 <img src="...">
+    if (item.description) {
+        const regex = /<img[^>]+src="([^">]+)"/g;
+        let match;
+        while ((match = regex.exec(item.description)) !== null) {
+            // 避免重复添加封面图
+            if (!list.includes(match[1])) {
+                list.push(match[1]);
+            }
+        }
+    }
+    return list;
 }
 
 // 获取商品列表
@@ -82,9 +108,8 @@ const addToCartFromDetail = () => {
     }
 }
 
-// ✅ 新增：联系卖家
+// 联系卖家
 const contactSeller = (item: Item) => {
-    // 跳转到消息中心，携带卖家ID和名字
     router.push({
         path: '/messages',
         query: {
@@ -149,15 +174,28 @@ onMounted(() => {
         <div v-else class="items-grid">
             <el-card v-for="item in items" :key="item.item_id" class="item-card" :body-style="{ padding: '0px' }"
                 shadow="hover" @click="openDetailModal(item)">
-                <div class="image-container">
-                    <img :src="getImageUrl(item.main_image)" :alt="item.title" class="item-image" />
+                
+                <div class="image-container" @click.stop="openDetailModal(item)">
+                    <el-carousel 
+                        trigger="click" 
+                        height="180px" 
+                        :autoplay="false" 
+                        indicator-position="none"
+                        arrow="hover"
+                    >
+                        <el-carousel-item v-for="(img, index) in getItemImages(item)" :key="index">
+                            <img :src="getImageUrl(img)" :alt="item.title" class="item-image" />
+                        </el-carousel-item>
+                    </el-carousel>
+                    
                     <div v-if="item.stock_quantity <= 0" class="sold-out-mask">
                         <span>已售罄</span>
                     </div>
                 </div>
+
                 <div class="card-body">
                     <h3 class="item-title" :title="item.title">{{ item.title }}</h3>
-                    <p class="item-desc">{{ item.description || '暂无详细描述' }}</p>
+                    <p class="item-desc">{{ item.description ? item.description.replace(/<[^>]+>/g, '') : '暂无详细描述' }}</p>
 
                     <div class="item-meta">
                         <span class="price">¥{{ item.price }}</span>
@@ -167,11 +205,7 @@ onMounted(() => {
                         <span class="seller">👤 {{ item.seller_name }}</span>
                     </div>
 
-                    <el-button type="primary" :icon="ShoppingCart" class="w-100" @click="addToCart(item, $event, 1)"
-                        :disabled="item.stock_quantity <= 0" style="margin-top: 10px;">
-                        {{ item.stock_quantity > 0 ? '加入购物车' : '缺货' }}
-                    </el-button>
-                </div>
+                    </div>
             </el-card>
         </div>
 
@@ -197,7 +231,7 @@ onMounted(() => {
                     </div>
                     <el-divider content-position="left">商品描述 / 参数</el-divider>
                     <div class="detail-description">
-                        <div class="desc-text">{{ selectedItem.description || '暂无描述' }}</div>
+                        <div class="desc-text" v-html="selectedItem.description || '暂无描述'"></div>
                     </div>
 
                     <div class="detail-actions-row"
@@ -334,6 +368,7 @@ onMounted(() => {
     color: #909399;
     font-weight: bold;
     font-size: 20px;
+    z-index: 10;
 }
 
 .card-body {
@@ -396,10 +431,6 @@ onMounted(() => {
     border-radius: 4px;
 }
 
-.w-100 {
-    width: 100%;
-}
-
 .cart-float {
     position: fixed;
     bottom: 50px;
@@ -441,12 +472,19 @@ onMounted(() => {
 .desc-text {
     color: #606266;
     line-height: 1.6;
-    white-space: pre-wrap;
+    /* white-space: pre-wrap;  移除这个，以便正常渲染 HTML 图片 */
     background: #f9fafc;
     padding: 10px;
     border-radius: 4px;
-    max-height: 150px;
+    max-height: 300px; /* 增加高度以便显示多图 */
     overflow-y: auto;
+}
+
+/* 让详情里的图片适应容器 */
+.desc-text :deep(img) {
+    max-width: 100%;
+    border-radius: 4px;
+    margin-top: 10px;
 }
 
 .cart-list-container {

@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import path from "path"; // ✅ 新增引入 path
+import path from "path";
 import authRoutes from "./routes/authRoutes";
 import itemRoutes from "./routes/itemRoutes";
 import userRoutes from "./routes/userRoutes";
@@ -11,6 +11,8 @@ import statRoutes from "./routes/statRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import complaintRoutes from "./routes/complaintRoutes";
+// 保留数据库检查，这是一个很好的实践
+import { checkConnection } from "./config/db";
 
 dotenv.config();
 
@@ -21,12 +23,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// ✅ 新增：静态资源托管
-// 允许前端通过 /uploads/xxx 路径访问 server/uploads 目录下的文件
-// 假设 server 目录结构为:
-// server/
-//   src/index.ts
-//   uploads/
+// 静态资源托管
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // 路由注册
@@ -40,12 +37,13 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/complaints", complaintRoutes);
 
-// 全局错误处理 (防止崩溃)
+// 全局错误处理
 app.use((err: any, req: any, res: any, next: any) => {
-  console.error(err.stack);
+  console.error(err.stack); // 只打印错误堆栈
   res.status(500).send("Something broke!");
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(PORT, async () => {
+  console.log(`✅ Server is running on port ${PORT}`);
+  await checkConnection(); // 启动时自动检查数据库连接
 });

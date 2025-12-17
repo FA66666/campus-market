@@ -9,12 +9,10 @@ export const useUserStore = defineStore("user", () => {
   // 登录动作
   const login = async (loginForm: any) => {
     try {
-      // 调用后端接口 /api/auth/login
       const res: any = await request.post("/auth/login", loginForm);
       token.value = res.token;
       userInfo.value = res.user;
 
-      // 持久化存储 Token
       localStorage.setItem("token", res.token);
       return true;
     } catch (error) {
@@ -34,5 +32,21 @@ export const useUserStore = defineStore("user", () => {
     localStorage.removeItem("token");
   };
 
-  return { token, userInfo, login, register, logout };
+  // ✅ 新增：恢复用户信息 (用于刷新页面后)
+  const fetchUserInfo = async () => {
+    if (!token.value) return;
+    try {
+      // 调用之前写好的获取个人资料接口
+      const res: any = await request.get("/users/profile");
+      if (res.code === 200) {
+        userInfo.value = res.data;
+      }
+    } catch (error) {
+      console.error("获取用户信息失败", error);
+      // 如果 Token 过期或无效，这里可以选择登出
+      // logout();
+    }
+  };
+
+  return { token, userInfo, login, register, logout, fetchUserInfo };
 });

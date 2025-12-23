@@ -7,21 +7,53 @@ import {
   getComplaints,
   resolveComplaint,
 } from "../controllers/adminController";
-import { authenticateToken } from "../middlewares/auth";
+import { adminLogin } from "../controllers/adminAuthController";
+import { authenticateAdmin, requireRole } from "../middlewares/auth";
 
-// 注意：实际项目中建议增加 isAdmin 中间件校验管理员权限
 const router = Router();
 
-// --- 商品审核 ---
-router.get("/items/pending", authenticateToken, getPendingItems);
-router.post("/items/:id/audit", authenticateToken, auditItem);
+// --- 角色常量定义 (与数据库 sys_role 表保持一致) ---
+const ROLE_SUPER = "SUPER_ADMIN"; // 超级管理员
+const ROLE_AUDITOR = "AUDITOR"; // 审核员
 
-// --- 用户管理 (新增) ---
-router.get("/users", authenticateToken, getUsers);
-router.post("/users/:id/manage", authenticateToken, manageUser); // 封禁/解封
+// 1. 管理员登录 (公开)
+router.post("/login", adminLogin);
 
-// --- 投诉处理 (新增) ---
-router.get("/complaints", authenticateToken, getComplaints);
-router.post("/complaints/:id/resolve", authenticateToken, resolveComplaint);
+// 2. 商品审核模块 (允许: 审核员, 超级管理员)
+router.get(
+  "/items/pending",
+  authenticateAdmin,
+  requireRole(ROLE_AUDITOR, ROLE_SUPER),
+  getPendingItems
+);
+router.post(
+  "/items/:id/audit",
+  authenticateAdmin,
+  requireRole(ROLE_AUDITOR, ROLE_SUPER),
+  auditItem
+);
+
+// 3. 用户管理模块 (仅允许: 超级管理员)
+router.get("/users", authenticateAdmin, requireRole(ROLE_SUPER), getUsers);
+router.post(
+  "/users/:id/manage",
+  authenticateAdmin,
+  requireRole(ROLE_SUPER),
+  manageUser
+);
+
+// 4. 投诉处理模块 (允许: 审核员, 超级管理员)
+router.get(
+  "/complaints",
+  authenticateAdmin,
+  requireRole(ROLE_AUDITOR, ROLE_SUPER),
+  getComplaints
+);
+router.post(
+  "/complaints/:id/resolve",
+  authenticateAdmin,
+  requireRole(ROLE_AUDITOR, ROLE_SUPER),
+  resolveComplaint
+);
 
 export default router;

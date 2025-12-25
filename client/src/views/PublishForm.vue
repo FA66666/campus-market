@@ -1,161 +1,162 @@
+<script setup lang="ts">
+import { ref, reactive, onMounted } from "vue";
+import { Plus } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
+import request from "../utils/request";
+import { useRouter } from "vue-router";
+
+const router = useRouter();
+const formRef = ref();
+const fileList = ref<any[]>([]);
+
+// ✅ [新增] 分类数据状态
+const categoryOptions = ref([]);
+
+const form = reactive({
+    title: "",
+    price: 0,
+    description: "",
+    stock_quantity: 1,
+    category_id: null, // 这里将存储选中的分类ID
+});
+
+const rules = {
+    title: [{ required: true, message: "请输入商品标题", trigger: "blur" }],
+    price: [{ required: true, message: "请输入价格", trigger: "blur" }],
+    category_id: [{ required: true, message: "请选择分类", trigger: "change" }],
+    description: [{ required: true, message: "请输入描述", trigger: "blur" }],
+};
+
+// ✅ [新增] 获取分类树
+const fetchCategories = async () => {
+    try {
+        const res: any = await request.get('/categories');
+        if (res.code === 200) {
+            categoryOptions.value = res.data;
+        }
+    } catch (error) {
+        console.error("获取分类失败", error);
+    }
+};
+
+const handleExceed = () => {
+    ElMessage.warning("最多只能上传 5 张图片");
+};
+
+const submitForm = async () => {
+    if (!formRef.value) return;
+
+    await formRef.value.validate(async (valid: boolean) => {
+        if (valid) {
+            if (fileList.value.length === 0) {
+                ElMessage.warning("请至少上传一张图片");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("title", form.title);
+            formData.append("price", form.price.toString());
+            formData.append("description", form.description);
+            formData.append("stock_quantity", form.stock_quantity.toString());
+            // ✅ 此时 category_id 已经是选中的叶子节点 ID
+            formData.append("category_id", form.category_id?.toString() || "");
+
+            fileList.value.forEach((file) => {
+                formData.append("images", file.raw);
+            });
+
+            try {
+                const res: any = await request.post("/items", formData, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                });
+                if (res.code === 201) {
+                    ElMessage.success("发布成功，等待审核");
+                    router.push("/profile");
+                } else {
+                    ElMessage.error(res.message || "发布失败");
+                }
+            } catch (err) {
+                ElMessage.error("发布异常");
+            }
+        }
+    });
+};
+
+onMounted(() => {
+    fetchCategories();
+});
+</script>
+
 <template>
-    <div class="form-container">
-        <el-card class="publish-card">
-            <template #header>
-                <div class="card-header">
-                    <span>发布新商品</span>
-                </div>
-            </template>
-
-            <el-form :model="form" label-width="100px" size="large">
-
-                <el-form-item label="商品标题" required>
-                    <el-input v-model="form.title" placeholder="品牌型号，如：iPhone 13 Pro Max" />
+    <div class="publish-container">
+        <div class="form-card">
+            <h2>📦 发布闲置</h2>
+            <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" class="publish-form">
+                <el-form-item label="标题" prop="title">
+                    <el-input v-model="form.title" placeholder="品牌型号 / 关键信息" />
                 </el-form-item>
 
-                <el-row :gutter="20">
-                    <el-col :span="12">
-                        <el-form-item label="商品分类" required>
-                            <el-select v-model="form.category_id" placeholder="选择分类" style="width: 100%">
-                                <el-option label="数码产品" :value="1" />
-                                <el-option label="教材书籍" :value="2" />
-                                <el-option label="生活用品" :value="3" />
-                            </el-select>
-                        </el-form-item>
-                    </el-col>
-                    <el-col :span="12">
-                        <el-form-item label="价格 (元)" required>
-                            <el-input-number v-model="form.price" :precision="2" :step="10" :min="0"
-                                style="width: 100%" />
-                        </el-form-item>
-                    </el-col>
-                </el-row>
-
-                <el-form-item label="库存数量">
-                    <el-input-number v-model="form.stock_quantity" :min="1" :max="999" />
+                <el-form-item label="价格" prop="price">
+                    <el-input-number v-model="form.price" :min="0" :precision="2" />
                 </el-form-item>
 
-                <el-form-item label="商品图片" required>
+                <el-form-item label="库存" prop="stock_quantity">
+                    <el-input-number v-model="form.stock_quantity" :min="1" :max="99" />
+                </el-form-item>
+
+                <el-form-item label="分类" prop="category_id">
+                    <el-cascader v-model="form.category_id" :options="categoryOptions" :props="{
+                        value: 'category_id',
+                        label: 'category_name',
+                        children: 'children',
+                        emitPath: false // 只获取选中的最后一级ID
+                    }" placeholder="请选择商品分类" style="width: 100%" clearable />
+                </el-form-item>
+
+                <el-form-item label="描述" prop="description">
+                    <el-input v-model="form.description" type="textarea" rows="4" placeholder="描述宝贝的转手原因、新旧程度..." />
+                </el-form-item>
+
+                <el-form-item label="图片">
                     <el-upload v-model:file-list="fileList" action="#" list-type="picture-card" :auto-upload="false"
-                        :on-preview="handlePictureCardPreview" :on-remove="handleRemove" :limit="9" multiple
-                        accept="image/*">
+                        :limit="5" :on-exceed="handleExceed" multiple>
                         <el-icon>
                             <Plus />
                         </el-icon>
                     </el-upload>
-                    <div class="help-text">第一张图片将作为商品封面，后续图片将显示在详情页中。</div>
-                </el-form-item>
-
-                <el-dialog v-model="dialogVisible">
-                    <img w-full :src="dialogImageUrl" alt="Preview Image" style="width: 100%" />
-                </el-dialog>
-
-                <el-form-item label="商品描述">
-                    <el-input v-model="form.description" type="textarea" :rows="4" placeholder="描述一下商品的新旧程度、入手渠道等..." />
                 </el-form-item>
 
                 <el-form-item>
-                    <el-button type="primary" @click="onSubmit" :loading="submitting">立即发布</el-button>
-                    <el-button @click="$router.push('/')">取消</el-button>
+                    <el-button type="primary" @click="submitForm" size="large" class="submit-btn">
+                        立即发布
+                    </el-button>
                 </el-form-item>
             </el-form>
-        </el-card>
+        </div>
     </div>
 </template>
 
-<script setup lang="ts">
-import { reactive, ref } from 'vue';
-import request from '../utils/request';
-import { ElMessage } from 'element-plus';
-import { useRouter } from 'vue-router';
-import { Plus } from '@element-plus/icons-vue';
-import type { UploadProps, UploadUserFile } from 'element-plus';
-
-const router = useRouter();
-const submitting = ref(false);
-
-// 表单数据
-const form = reactive({
-    title: '',
-    category_id: null,
-    price: 0,
-    stock_quantity: 1,
-    description: ''
-});
-
-// ✅ 上传相关状态
-const fileList = ref<UploadUserFile[]>([]);
-const dialogImageUrl = ref('');
-const dialogVisible = ref(false);
-
-// 移除图片回调
-const handleRemove: UploadProps['onRemove'] = (uploadFile, uploadFiles) => {
-    console.log(uploadFile, uploadFiles);
-};
-
-// 预览图片回调
-const handlePictureCardPreview: UploadProps['onPreview'] = (uploadFile) => {
-    dialogImageUrl.value = uploadFile.url!;
-    dialogVisible.value = true;
-};
-
-// 提交表单
-const onSubmit = async () => {
-    if (!form.title || !form.category_id || !form.price) {
-        ElMessage.warning('请填写完整的必要信息');
-        return;
-    }
-
-    // ✅ 校验：至少上传一张图
-    if (fileList.value.length === 0) {
-        ElMessage.warning('请至少上传一张商品图片');
-        return;
-    }
-
-    submitting.value = true;
-    try {
-        // ✅ 使用 FormData 构建提交数据
-        const formData = new FormData();
-        formData.append('title', form.title);
-        formData.append('category_id', String(form.category_id));
-        formData.append('price', String(form.price));
-        formData.append('stock_quantity', String(form.stock_quantity));
-        formData.append('description', form.description || '');
-
-        // 循环添加所有图片文件
-        // 注意：后端接收的字段名必须是 'images'，与路由中的 upload.array('images') 对应
-        fileList.value.forEach((file) => {
-            if (file.raw) {
-                formData.append('images', file.raw);
-            }
-        });
-
-        // ✅ 关键修改：移除 headers 配置，让 Axios 自动处理 Boundary
-        const res: any = await request.post('/items', formData);
-
-        if (res.code === 201) {
-            ElMessage.success('发布成功！');
-            router.push('/');
-        }
-    } catch (error) {
-        // 错误已由拦截器处理
-    } finally {
-        submitting.value = false;
-    }
-};
-</script>
-
 <style scoped>
-.form-container {
-    padding: 20px;
+.publish-container {
     max-width: 800px;
     margin: 0 auto;
+    padding: 20px;
 }
 
-.help-text {
-    font-size: 12px;
-    color: #999;
-    margin-top: 10px;
+.form-card {
+    background: #fff;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+}
+
+h2 {
+    text-align: center;
+    margin-bottom: 30px;
+    color: #303133;
+}
+
+.submit-btn {
     width: 100%;
 }
 </style>

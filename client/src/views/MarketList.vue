@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import request from '../utils/request'
 import { useCartStore } from '../stores/cart'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ShoppingCart, ChatDotRound } from '@element-plus/icons-vue'
+import { ShoppingCart, Search, Filter, Sort } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
+const cartStore = useCartStore()
 
 // 定义商品接口
 interface Item {
@@ -20,45 +21,92 @@ interface Item {
     description: string
     stock_quantity: number
     status: number
+    view_count?: number
+    collect_count?: number
 }
 
 const items = ref<Item[]>([])
 const loading = ref(false)
-const cartStore = useCartStore()
+
+// 筛选条件
+const filters = ref({
+    keyword: '',
+    minPrice: undefined as number | undefined,
+    maxPrice: undefined as number | undefined,
+    sortBy: 'created_at',
+    hasStock: false
+})
+
+// 排序选项
+const sortOptions = [
+    { value: 'created_at', label: '最新发布' },
+    { value: 'price_asc', label: '价格从低到高' },
+    { value: 'price_desc', label: '价格从高到低' },
+    { value: 'view_count', label: '浏览量最高' },
+    { value: 'collect_count', label: '收藏量最高' }
+]
 
 // 结算相关状态
 const showCartModal = ref(false)
 const address = ref('')
 const phone = ref('')
 
-// --- 详情弹窗相关状态 ---
-const showDetailModal = ref(false)
-const selectedItem = ref<Item | null>(null)
-const buyCount = ref(1)
+// 地址相关
+interface Address {
+    address_id: number
+    receiver_name: string
+    receiver_phone: string
+    address: string
+    is_default: number
+}
+const addresses = ref<Address[]>([])
+const selectedAddressId = ref<number | null>(null)
 
-// ✅ 修改：图片路径处理，支持本地上传的图片
+// 获取用户地址列表
+const fetchAddresses = async () => {
+    try {
+        const res: any = await request.get('/addresses')
+        if (res.code === 200) {
+            addresses.value = res.data
+            // 自动选择默认地址
+            const defaultAddr = addresses.value.find(a => a.is_default === 1)
+            if (defaultAddr) {
+                selectedAddressId.value = defaultAddr.address_id
+                address.value = defaultAddr.address
+                phone.value = defaultAddr.receiver_phone
+            }
+        }
+    } catch (err) {
+        console.error('获取地址失败:', err)
+    }
+}
+
+// 地址选择变化
+const handleAddressChange = (addrId: number) => {
+    const addr = addresses.value.find(a => a.address_id === addrId)
+    if (addr) {
+        address.value = addr.address
+        phone.value = addr.receiver_phone
+    }
+}
+
+// 图片路径处理
 const getImageUrl = (img: string | null) => {
     if (!img) return 'https://via.placeholder.com/300x300?text=No+Image';
-    // 如果是本地上传的图片 (以 /uploads 开头)，需要补全后端地址
     if (img.startsWith('/uploads')) {
         return `http://localhost:3000${img}`;
     }
     return img;
 }
 
-// ✅ 新增：从商品信息中提取所有图片（封面 + 描述中的图片）
+// 提取所有图片
 const getItemImages = (item: Item) => {
     const list: string[] = [];
-    
-    // 1. 先加入封面图
     if (item.main_image) list.push(item.main_image);
-    
-    // 2. 从描述 HTML 中正则提取 <img src="...">
     if (item.description) {
         const regex = /<img[^>]+src="([^">]+)"/g;
         let match;
         while ((match = regex.exec(item.description)) !== null) {
-            // 避免重复添加封面图
             if (!list.includes(match[1])) {
                 list.push(match[1]);
             }
@@ -71,7 +119,14 @@ const getItemImages = (item: Item) => {
 const fetchItems = async () => {
     loading.value = true
     try {
-        const res: any = await request.get('/items/market')
+        const params: Record<string, any> = {}
+        if (filters.value.keyword) params.keyword = filters.value.keyword
+        if (filters.value.minPrice !== undefined) params.minPrice = filters.value.minPrice
+        if (filters.value.maxPrice !== undefined) params.maxPrice = filters.value.maxPrice
+        if (filters.value.sortBy) params.sortBy = filters.value.sortBy
+        if (filters.value.hasStock) params.hasStock = 'true'
+
+        const res: any = await request.get('/items/market', { params })
         if (res.code === 200) {
             items.value = res.data
         }
@@ -82,40 +137,28 @@ const fetchItems = async () => {
     }
 }
 
-// 打开详情弹窗
-const openDetailModal = (item: Item) => {
-    selectedItem.value = item
-    buyCount.value = 1
-    showDetailModal.value = true
-}
-
-// 加入购物车
-const addToCart = (item: Item, event?: Event, count: number = 1) => {
-    if (event) event.stopPropagation()
-    if (item.stock_quantity <= 0) {
-        ElMessage.warning('该商品暂时缺货')
-        return
+// 重置筛选条件
+const resetFilters = () => {
+    filters.value = {
+        keyword: '',
+        minPrice: undefined,
+        maxPrice: undefined,
+        sortBy: 'created_at',
+        hasStock: false
     }
-    cartStore.addItem(item, count)
-    ElMessage.success(`已将 ${count} 件 "${item.title}" 加入购物车`)
+    fetchItems()
 }
 
-// 在详情页加入购物车
-const addToCartFromDetail = () => {
-    if (selectedItem.value) {
-        addToCart(selectedItem.value, undefined, buyCount.value)
-        showDetailModal.value = false
-    }
+// 搜索
+const handleSearch = () => {
+    fetchItems()
 }
 
-// 联系卖家
-const contactSeller = (item: Item) => {
+// ✅ 跳转到详情页
+const goToDetail = (item: Item) => {
     router.push({
-        path: '/messages',
-        query: {
-            to: item.seller_id,
-            name: item.seller_name
-        }
+        name: 'itemDetail',
+        params: { id: item.item_id }
     })
 }
 
@@ -159,35 +202,71 @@ const submitOrder = async () => {
 
 onMounted(() => {
     fetchItems()
+    cartStore.loadCart()
+    fetchAddresses()
 })
 </script>
 
 <template>
     <div class="market-container">
         <div class="page-header">
-            <h2>🛍️ 二手商品广场</h2>
+            <h2>二手商品广场</h2>
             <p class="subtitle">发现校园里的宝藏</p>
         </div>
+
+        <!-- 筛选栏 -->
+        <el-card class="filter-card" shadow="never">
+            <div class="filter-row">
+                <div class="search-box">
+                    <el-input v-model="filters.keyword" placeholder="搜索商品名称..." clearable @keyup.enter="handleSearch"
+                        style="width: 250px;">
+                        <template #prefix>
+                            <el-icon>
+                                <Search />
+                            </el-icon>
+                        </template>
+                    </el-input>
+                    <el-button type="primary" @click="handleSearch">搜索</el-button>
+                </div>
+
+                <div class="filter-group">
+                    <span class="filter-label">价格区间:</span>
+                    <el-input-number v-model="filters.minPrice" :min="0" :precision="0" placeholder="最低价"
+                        controls-position="right" style="width: 100px;" />
+                    <span class="price-sep">-</span>
+                    <el-input-number v-model="filters.maxPrice" :min="0" :precision="0" placeholder="最高价"
+                        controls-position="right" style="width: 100px;" />
+                </div>
+
+                <div class="filter-group">
+                    <span class="filter-label">排序:</span>
+                    <el-select v-model="filters.sortBy" style="width: 140px;" @change="fetchItems">
+                        <el-option v-for="opt in sortOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                    </el-select>
+                </div>
+
+                <div class="filter-group">
+                    <el-checkbox v-model="filters.hasStock" @change="fetchItems">只看有货</el-checkbox>
+                </div>
+
+                <el-button @click="resetFilters">重置</el-button>
+            </div>
+        </el-card>
 
         <div v-if="loading" class="loading-state" v-loading="loading" style="min-height: 200px;"></div>
 
         <div v-else class="items-grid">
             <el-card v-for="item in items" :key="item.item_id" class="item-card" :body-style="{ padding: '0px' }"
-                shadow="hover" @click="openDetailModal(item)">
-                
-                <div class="image-container" @click.stop="openDetailModal(item)">
-                    <el-carousel 
-                        trigger="click" 
-                        height="180px" 
-                        :autoplay="false" 
-                        indicator-position="none"
-                        arrow="hover"
-                    >
+                shadow="hover" @click="goToDetail(item)">
+
+                <div class="image-container">
+                    <el-carousel trigger="click" height="180px" :autoplay="false" indicator-position="none"
+                        arrow="hover" @click.stop="goToDetail(item)">
                         <el-carousel-item v-for="(img, index) in getItemImages(item)" :key="index">
                             <img :src="getImageUrl(img)" :alt="item.title" class="item-image" />
                         </el-carousel-item>
                     </el-carousel>
-                    
+
                     <div v-if="item.stock_quantity <= 0" class="sold-out-mask">
                         <span>已售罄</span>
                     </div>
@@ -195,7 +274,8 @@ onMounted(() => {
 
                 <div class="card-body">
                     <h3 class="item-title" :title="item.title">{{ item.title }}</h3>
-                    <p class="item-desc">{{ item.description ? item.description.replace(/<[^>]+>/g, '') : '暂无详细描述' }}</p>
+                    <p class="item-desc">{{ item.description ? item.description.replace(/<[^>]+>/g, '') : '暂无详细描述' }}
+                    </p>
 
                     <div class="item-meta">
                         <span class="price">¥{{ item.price }}</span>
@@ -204,8 +284,7 @@ onMounted(() => {
                     <div class="item-footer">
                         <span class="seller">👤 {{ item.seller_name }}</span>
                     </div>
-
-                    </div>
+                </div>
             </el-card>
         </div>
 
@@ -215,43 +294,6 @@ onMounted(() => {
                     style="font-size: 24px; width: 60px; height: 60px;" />
             </el-badge>
         </div>
-
-        <el-dialog v-model="showDetailModal" title="商品详情" width="700px" align-center destroy-on-close>
-            <div v-if="selectedItem" class="detail-layout">
-                <div class="detail-image-box">
-                    <img :src="getImageUrl(selectedItem.main_image)" class="detail-image" />
-                </div>
-                <div class="detail-info-box">
-                    <h3>{{ selectedItem.title }}</h3>
-                    <p class="detail-price">¥{{ selectedItem.price }}</p>
-                    <div class="detail-meta">
-                        <p><strong>卖家:</strong> {{ selectedItem.seller_name }}</p>
-                        <p><strong>库存:</strong> {{ selectedItem.stock_quantity }} 件</p>
-                        <p v-if="selectedItem.category_name"><strong>分类:</strong> {{ selectedItem.category_name }}</p>
-                    </div>
-                    <el-divider content-position="left">商品描述 / 参数</el-divider>
-                    <div class="detail-description">
-                        <div class="desc-text" v-html="selectedItem.description || '暂无描述'"></div>
-                    </div>
-
-                    <div class="detail-actions-row"
-                        style="margin-top: 20px; display: flex; align-items: center; gap: 15px;">
-                        <span>购买数量:</span>
-                        <el-input-number v-model="buyCount" :min="1" :max="selectedItem.stock_quantity" />
-                    </div>
-                </div>
-            </div>
-            <template #footer>
-                <span class="dialog-footer">
-                    <el-button :icon="ChatDotRound" @click="contactSeller(selectedItem!)">联系卖家</el-button>
-                    <el-button @click="showDetailModal = false">关闭</el-button>
-                    <el-button type="primary" @click="addToCartFromDetail"
-                        :disabled="selectedItem?.stock_quantity! <= 0">
-                        加入购物车
-                    </el-button>
-                </span>
-            </template>
-        </el-dialog>
 
         <el-dialog v-model="showCartModal" title="购物车结算" width="600px" align-center>
             <div v-if="cartStore.items.length === 0" class="empty-cart">
@@ -287,12 +329,28 @@ onMounted(() => {
                         <span class="total-price-text">¥{{ cartStore.totalPrice }}</span>
                     </div>
                     <el-form label-position="top">
+                        <el-form-item label="选择收货地址" v-if="addresses.length > 0">
+                            <el-select v-model="selectedAddressId" placeholder="选择已保存的地址" style="width: 100%;"
+                                @change="handleAddressChange">
+                                <el-option v-for="addr in addresses" :key="addr.address_id" :value="addr.address_id"
+                                    :label="`${addr.receiver_name} ${addr.receiver_phone} - ${addr.address}`">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span>{{ addr.receiver_name }} {{ addr.receiver_phone }}</span>
+                                        <el-tag v-if="addr.is_default === 1" type="warning" size="small">默认</el-tag>
+                                    </div>
+                                    <div style="font-size: 12px; color: #909399;">{{ addr.address }}</div>
+                                </el-option>
+                            </el-select>
+                        </el-form-item>
                         <el-form-item label="收货地址">
                             <el-input v-model="address" placeholder="请输入详细地址" />
                         </el-form-item>
                         <el-form-item label="联系电话">
                             <el-input v-model="phone" placeholder="请输入手机号" />
                         </el-form-item>
+                        <div v-if="addresses.length === 0" class="no-address-tip">
+                            <router-link to="/addresses">还没有保存的地址？去添加</router-link>
+                        </div>
                     </el-form>
                 </div>
             </div>
@@ -324,6 +382,39 @@ onMounted(() => {
 .subtitle {
     color: #909399;
     font-size: 14px;
+}
+
+.filter-card {
+    margin-bottom: 20px;
+    background: #fff;
+}
+
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+}
+
+.search-box {
+    display: flex;
+    gap: 10px;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-label {
+    color: #606266;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.price-sep {
+    color: #909399;
 }
 
 .items-grid {
@@ -438,55 +529,6 @@ onMounted(() => {
     z-index: 1000;
 }
 
-.detail-layout {
-    display: flex;
-    gap: 20px;
-}
-
-.detail-image-box {
-    flex: 1;
-    border-radius: 4px;
-    overflow: hidden;
-    background: #f5f7fa;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.detail-image {
-    max-width: 100%;
-    max-height: 300px;
-}
-
-.detail-info-box {
-    flex: 1.5;
-}
-
-.detail-price {
-    font-size: 24px;
-    color: #f56c6c;
-    font-weight: bold;
-    margin: 10px 0;
-}
-
-.desc-text {
-    color: #606266;
-    line-height: 1.6;
-    /* white-space: pre-wrap;  移除这个，以便正常渲染 HTML 图片 */
-    background: #f9fafc;
-    padding: 10px;
-    border-radius: 4px;
-    max-height: 300px; /* 增加高度以便显示多图 */
-    overflow-y: auto;
-}
-
-/* 让详情里的图片适应容器 */
-.desc-text :deep(img) {
-    max-width: 100%;
-    border-radius: 4px;
-    margin-top: 10px;
-}
-
 .cart-list-container {
     max-height: 300px;
     overflow-y: auto;
@@ -553,5 +595,19 @@ onMounted(() => {
 .total-price-text {
     color: #f56c6c;
     font-size: 20px;
+}
+
+.no-address-tip {
+    text-align: center;
+    padding: 10px 0;
+}
+
+.no-address-tip a {
+    color: #409eff;
+    text-decoration: none;
+}
+
+.no-address-tip a:hover {
+    text-decoration: underline;
 }
 </style>

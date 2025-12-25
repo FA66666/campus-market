@@ -299,8 +299,8 @@ onMounted(() => fetchSales())
                         <el-table-column prop="stock_quantity" label="库存" width="100" />
                         <el-table-column label="状态" width="120">
                             <template #default="scope">
-                                <el-tag :type="scope.row.status === 0 ? 'success' : 'info'">
-                                    {{ scope.row.status === 0 ? '出售中' : '已下架' }}
+                                <el-tag :type="scope.row.status === 1 ? 'success' : (scope.row.status === 0 ? 'warning' : 'info')">
+                                    {{ scope.row.status === 1 ? '出售中' : (scope.row.status === 0 ? '待审核' : '已下架') }}
                                 </el-tag>
                             </template>
                         </el-table-column>
@@ -346,8 +346,8 @@ onMounted(() => fetchSales())
                 </el-form-item>
                 <el-form-item label="状态">
                     <el-radio-group v-model="editForm.status">
-                        <el-radio :label="0">出售中</el-radio>
-                        <el-radio :label="1">下架</el-radio>
+                        <el-radio :label="1">上架出售</el-radio>
+                        <el-radio :label="4">下架</el-radio>
                     </el-radio-group>
                 </el-form-item>
                 <el-form-item label="描述">

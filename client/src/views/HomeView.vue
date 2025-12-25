@@ -42,11 +42,6 @@
                                 <User />
                             </el-icon><span>个人中心</span>
                         </el-menu-item>
-                        <el-menu-item index="/admin">
-                            <el-icon>
-                                <Monitor />
-                            </el-icon><span>Admin</span>
-                        </el-menu-item>
                     </el-menu>
                 </div>
 
@@ -64,6 +59,7 @@
                         <template #dropdown>
                             <el-dropdown-menu>
                                 <el-dropdown-item @click="router.push('/profile')">个人资料</el-dropdown-item>
+                                <el-dropdown-item @click="router.push('/addresses')">收货地址</el-dropdown-item>
                                 <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
                             </el-dropdown-menu>
                         </template>
@@ -88,7 +84,7 @@
 import { computed } from 'vue';
 import { useUserStore } from '../stores/user';
 import { useRouter, useRoute } from 'vue-router';
-import { Shop, Goods, Sell, ShoppingCart, User, ArrowDown, List, Monitor, ChatDotRound } from '@element-plus/icons-vue';
+import { Shop, Goods, Sell, ShoppingCart, User, ArrowDown, List, ChatDotRound } from '@element-plus/icons-vue';
 
 const userStore = useUserStore();
 const router = useRouter();

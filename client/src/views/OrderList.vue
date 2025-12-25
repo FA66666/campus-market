@@ -19,6 +19,7 @@ interface Order {
     created_at: string
     seller_name: string
     seller_id: number
+    seller_credit_score?: number
     my_rating?: number
 }
 
@@ -216,7 +217,7 @@ const openReviewModal = (id: number) => {
 
 const submitReview = async () => {
     try {
-        const res: any = await request.post('/reviews/create', {
+        const res: any = await request.post('/reviews', {
             order_id: activeOrderId.value,
             rating: reviewForm.value.rating,
             content: reviewForm.value.content
@@ -302,7 +303,15 @@ onUnmounted(() => {
                         <el-image :src="getImageUrl(order.main_image)" class="product-thumb" fit="cover" />
                         <div class="product-details">
                             <h3 class="product-title">{{ order.item_title }}</h3>
-                            <p v-if="order.seller_name" class="seller-name">卖家: {{ order.seller_name }}</p>
+                            <p v-if="order.seller_name" class="seller-name">
+                                卖家: {{ order.seller_name }}
+                                <el-tag
+                                    :type="(order.seller_credit_score || 100) >= 80 ? 'success' : (order.seller_credit_score || 100) >= 60 ? 'warning' : 'danger'"
+                                    size="small"
+                                    class="credit-tag">
+                                    信誉 {{ order.seller_credit_score || 100 }}
+                                </el-tag>
+                            </p>
                         </div>
                     </div>
 
@@ -474,6 +483,14 @@ onUnmounted(() => {
     color: #909399;
     font-size: 13px;
     margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.credit-tag {
+    vertical-align: middle;
 }
 
 .order-meta {

@@ -5,11 +5,26 @@ import request from '../utils/request'
 import { useUserStore } from '../stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+// 评价接口
+interface Review {
+    review_id: number
+    order_id: number
+    rating: number
+    content: string
+    created_at: string
+    reviewer_name: string
+}
+
 const user = ref<any>({})
 const userStore = useUserStore()
 const router = useRouter()
 const isEditing = ref(false)
 const editForm = ref({ real_name: '', auth_material: '' })
+
+// 评价相关
+const reviews = ref<Review[]>([])
+const avgRating = ref(0)
+const reviewsLoading = ref(false)
 
 const fetchProfile = async () => {
     try {
@@ -18,9 +33,27 @@ const fetchProfile = async () => {
             user.value = res.data
             editForm.value.real_name = res.data.real_name
             editForm.value.auth_material = res.data.auth_material
+            // 获取用户收到的评价
+            fetchReviews(res.data.user_id)
         }
     } catch (err) {
         console.error(err)
+    }
+}
+
+// 获取用户收到的评价
+const fetchReviews = async (userId: number) => {
+    reviewsLoading.value = true
+    try {
+        const res: any = await request.get(`/reviews/users/${userId}`)
+        if (res.code === 200) {
+            reviews.value = res.data.reviews || []
+            avgRating.value = res.data.avgRating || 0
+        }
+    } catch (error) {
+        console.error('获取评价失败:', error)
+    } finally {
+        reviewsLoading.value = false
     }
 }
 
@@ -119,6 +152,38 @@ onMounted(() => {
             </div>
         </el-card>
 
+        <!-- 收到的评价 -->
+        <el-card class="box-card reviews-card">
+            <template #header>
+                <div class="card-header">
+                    <span>收到的评价</span>
+                    <span class="review-summary" v-if="reviews.length > 0">
+                        {{ reviews.length }} 条评价，平均 {{ avgRating }} 分
+                    </span>
+                </div>
+            </template>
+
+            <div v-if="reviewsLoading" v-loading="reviewsLoading" style="min-height: 100px;"></div>
+
+            <div v-else-if="reviews.length === 0" class="no-reviews">
+                <el-empty description="暂无收到的评价" :image-size="80" />
+            </div>
+
+            <div v-else class="review-list">
+                <div v-for="review in reviews" :key="review.review_id" class="review-item">
+                    <div class="review-header">
+                        <span class="reviewer-name">{{ review.reviewer_name }}</span>
+                        <el-rate v-model="review.rating" disabled show-score text-color="#ff9900" />
+                    </div>
+                    <div class="review-content">{{ review.content || '用户未填写评价内容' }}</div>
+                    <div class="review-meta">
+                        <span class="review-time">{{ new Date(review.created_at).toLocaleString() }}</span>
+                        <span class="order-info">订单号: {{ review.order_id }}</span>
+                    </div>
+                </div>
+            </div>
+        </el-card>
+
         <div class="danger-zone">
             <h3>危险区域</h3>
             <p>注销账号将导致无法登录，请谨慎操作。</p>
@@ -164,5 +229,58 @@ onMounted(() => {
 .danger-zone h3 {
     color: #f56c6c;
     margin-top: 0;
+}
+
+/* 评价区域样式 */
+.reviews-card {
+    margin-bottom: 30px;
+}
+
+.review-summary {
+    font-size: 14px;
+    color: #909399;
+    font-weight: normal;
+}
+
+.review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.review-item {
+    background: #f9fafc;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #ebeef5;
+}
+
+.review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.reviewer-name {
+    font-weight: 500;
+    color: #303133;
+}
+
+.review-content {
+    color: #606266;
+    line-height: 1.6;
+    margin-bottom: 10px;
+}
+
+.review-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #909399;
+}
+
+.no-reviews {
+    padding: 20px 0;
 }
 </style>

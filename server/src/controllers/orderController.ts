@@ -98,21 +98,22 @@ export const getMyOrders = async (
 ): Promise<void> => {
   try {
     const buyerId = (req as any).user.userId;
-    // ✅ 修改：关联 Users 表获取 seller_name，并查询 seller_id
+    // ✅ 修改：关联 Users 表获取 seller_name、seller_credit_score
     const sql = `
-      SELECT 
-        o.order_id, 
-        o.total_amount, 
-        o.status, 
+      SELECT
+        o.order_id,
+        o.total_amount,
+        o.status,
         o.created_at,
-        o.seller_id,           -- 新增
-        u.username AS seller_name, -- 新增
-        i.title AS item_title, 
+        o.seller_id,
+        u.username AS seller_name,
+        u.credit_score AS seller_credit_score,
+        i.title AS item_title,
         i.main_image,
         r.rating AS my_rating,
         r.content AS my_review
       FROM Orders o
-      JOIN Users u ON o.seller_id = u.user_id  -- 关联卖家信息
+      JOIN Users u ON o.seller_id = u.user_id
       JOIN Order_Items oi ON o.order_id = oi.order_id
       JOIN Items i ON oi.item_id = i.item_id
       LEFT JOIN Reviews r ON o.order_id = r.order_id AND r.user_id = o.buyer_id

@@ -11,6 +11,12 @@ import statRoutes from "./routes/statRoutes";
 import reviewRoutes from "./routes/reviewRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import complaintRoutes from "./routes/complaintRoutes";
+// ✅ [新增] 引入分类路由
+import categoryRoutes from "./routes/categoryRoutes";
+// ✅ [新增] 引入地址路由
+import addressRoutes from "./routes/addressRoutes";
+// ✅ [新增] 引入购物车路由
+import cartRoutes from "./routes/cartRoutes";
 // 保留数据库检查，这是一个很好的实践
 import { checkConnection } from "./config/db";
 
@@ -36,6 +42,15 @@ app.use("/api/stats", statRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/complaints", complaintRoutes);
+
+// ✅ [新增] 注册分类路由
+app.use("/api/categories", categoryRoutes);
+
+// ✅ [新增] 注册地址路由
+app.use("/api/addresses", addressRoutes);
+
+// ✅ [新增] 注册购物车路由
+app.use("/api/cart", cartRoutes);
 
 // 全局错误处理
 app.use((err: any, req: any, res: any, next: any) => {

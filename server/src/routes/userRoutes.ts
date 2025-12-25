@@ -3,6 +3,7 @@ import {
   getProfile,
   updateProfile,
   cancelAccount,
+  getUserCredit,
 } from "../controllers/userController";
 import { authenticateToken } from "../middlewares/auth";
 
@@ -16,5 +17,8 @@ router.put("/profile", authenticateToken, updateProfile);
 
 // POST /api/users/cancel - 注销账号
 router.post("/cancel", authenticateToken, cancelAccount);
+
+// GET /api/users/:id/credit - 获取用户公开信誉信息（公开接口）
+router.get("/:id/credit", getUserCredit);
 
 export default router;

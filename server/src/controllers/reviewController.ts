@@ -29,7 +29,7 @@ export const createReview = async (
 
     const order = orders[0];
 
-    // 2. 只有“已完成”的订单才能评价
+    // 2. 只有"已完成"的订单才能评价
     if (order.status !== 3) {
       res.status(400).json({ message: "交易未完成，无法评价" });
       return;
@@ -64,3 +64,123 @@ export const createReview = async (
     }
   }
 };
+
+/**
+ * 获取商品的所有评价
+ */
+export const getItemReviews = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const itemId = parseInt(req.params.itemId);
+
+    const [reviews] = await pool.query<RowDataPacket[]>(
+      `SELECT
+        r.review_id, r.rating, r.content, r.created_at,
+        u.username AS reviewer_name
+       FROM Reviews r
+       JOIN Orders o ON r.order_id = o.order_id
+       JOIN Order_Items oi ON o.order_id = oi.order_id
+       JOIN Users u ON r.user_id = u.user_id
+       WHERE oi.item_id = ? AND r.is_hidden = 0
+       ORDER BY r.created_at DESC`,
+      [itemId]
+    );
+
+    // 计算平均评分
+    let avgRating = 0;
+    if (reviews.length > 0) {
+      const totalRating = reviews.reduce((sum, r) => sum + r.rating, 0);
+      avgRating = parseFloat((totalRating / reviews.length).toFixed(1));
+    }
+
+    res.json({
+      code: 200,
+      data: {
+        reviews,
+        avgRating,
+        total: reviews.length,
+      },
+    });
+  } catch (error) {
+    console.error("获取商品评价失败:", error);
+    res.status(500).json({ code: 500, message: "获取评价失败" });
+  }
+};
+
+/**
+ * 获取用户收到的评价
+ */
+export const getUserReviews = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = parseInt(req.params.userId);
+
+    const [reviews] = await pool.query<RowDataPacket[]>(
+      `SELECT
+        r.review_id, r.order_id, r.rating, r.content, r.created_at,
+        u.username AS reviewer_name
+       FROM Reviews r
+       JOIN Users u ON r.user_id = u.user_id
+       WHERE r.to_user_id = ? AND r.is_hidden = 0
+       ORDER BY r.created_at DESC`,
+      [userId]
+    );
+
+    // 计算平均评分
+    let avgRating = 0;
+    if (reviews.length > 0) {
+      const totalRating = reviews.reduce((sum, r) => sum + r.rating, 0);
+      avgRating = parseFloat((totalRating / reviews.length).toFixed(1));
+    }
+
+    res.json({
+      code: 200,
+      data: {
+        reviews,
+        avgRating,
+        total: reviews.length,
+      },
+    });
+  } catch (error) {
+    console.error("获取用户评价失败:", error);
+    res.status(500).json({ code: 500, message: "获取评价失败" });
+  }
+};
+
+/**
+ * 获取订单的评价详情
+ */
+export const getOrderReviews = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const orderId = parseInt(req.params.orderId);
+
+    const [reviews] = await pool.query<RowDataPacket[]>(
+      `SELECT
+        r.review_id, r.user_id, r.to_user_id, r.rating, r.content, r.created_at,
+        u1.username AS reviewer_name,
+        u2.username AS reviewed_name
+       FROM Reviews r
+       JOIN Users u1 ON r.user_id = u1.user_id
+       JOIN Users u2 ON r.to_user_id = u2.user_id
+       WHERE r.order_id = ?
+       ORDER BY r.created_at ASC`,
+      [orderId]
+    );
+
+    res.json({
+      code: 200,
+      data: reviews,
+    });
+  } catch (error) {
+    console.error("获取订单评价失败:", error);
+    res.status(500).json({ code: 500, message: "获取评价失败" });
+  }
+};
+

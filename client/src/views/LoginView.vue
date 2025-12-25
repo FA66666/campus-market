@@ -1,227 +1,197 @@
+<script setup lang="ts">
+import { ref, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../stores/user'
+import { ElMessage } from 'element-plus'
+import { User, Lock, School } from '@element-plus/icons-vue' // 引入 School 图标
+
+const router = useRouter()
+const userStore = useUserStore()
+
+const isLogin = ref(true) // 控制登录/注册切换
+const loading = ref(false)
+
+const form = reactive({
+    student_id: '',
+    username: '',
+    password: '',
+    confirmPassword: '',
+    real_name: '' // 注册时需要
+})
+
+// 切换模式时重置表单
+const toggleMode = () => {
+    isLogin.value = !isLogin.value
+    form.username = ''
+    form.password = ''
+    form.confirmPassword = ''
+    form.student_id = ''
+    form.real_name = ''
+}
+
+const handleSubmit = async () => {
+    // 简单校验
+    if (!form.username || !form.password) {
+        ElMessage.warning('请输入账号和密码')
+        return
+    }
+
+    if (!isLogin.value) {
+        // 注册校验
+        if (form.password !== form.confirmPassword) {
+            ElMessage.warning('两次密码输入不一致')
+            return
+        }
+        if (!form.student_id || !form.real_name) {
+            ElMessage.warning('请补全学号和真实姓名')
+            return
+        }
+    }
+
+    loading.value = true
+    try {
+        if (isLogin.value) {
+            // --- 登录逻辑 ---
+            await userStore.login({
+                username: form.username,
+                password: form.password
+            })
+            ElMessage.success('登录成功，欢迎回来！')
+            router.push('/')
+        } else {
+            // --- 注册逻辑 ---
+            await userStore.register({
+                username: form.username,
+                password: form.password,
+                student_id: form.student_id,
+                real_name: form.real_name
+            })
+            ElMessage.success('注册成功，请登录')
+            isLogin.value = true // 切换回登录
+        }
+    } catch (error: any) {
+        // 错误已经在 store 或 request 中处理了一部分，这里兜底
+        console.error(error)
+    } finally {
+        loading.value = false
+    }
+}
+
+// ✅ 跳转到管理员登录
+const goToAdmin = () => {
+    router.push({ name: 'adminLogin' })
+}
+</script>
+
 <template>
-    <div class="login-wrapper">
-        <div class="login-box shadow-lg">
-            <div class="login-banner">
-                <div class="banner-content">
-                    <h1>校园二手街</h1>
-                    <p>University Second-Hand Market</p>
-                    <p class="sub-text">安全 · 便捷 · 校内直达</p>
-                </div>
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <h2>🛍️ 校园二手街</h2>
+                <p>{{ isLogin ? '账号登录' : '新用户注册' }}</p>
             </div>
 
-            <div class="login-form-container">
-                <div class="form-header">
-                    <h2>{{ isLogin ? '用户登录' : '注册新账号' }}</h2>
-                    <div class="switch-type">
-                        <span v-if="isLogin">还没有账号？<a @click="toggleMode">立即注册</a></span>
-                        <span v-else>已有账号？<a @click="toggleMode">去登录</a></span>
-                    </div>
+            <el-form size="large" class="login-form">
+                <el-form-item v-if="!isLogin">
+                    <el-input v-model="form.student_id" placeholder="学号/工号" :prefix-icon="School" />
+                </el-form-item>
+
+                <el-form-item v-if="!isLogin">
+                    <el-input v-model="form.real_name" placeholder="真实姓名 (实名认证用)" :prefix-icon="User" />
+                </el-form-item>
+
+                <el-form-item>
+                    <el-input v-model="form.username" placeholder="用户名/账号" :prefix-icon="User" />
+                </el-form-item>
+
+                <el-form-item>
+                    <el-input v-model="form.password" type="password" placeholder="密码" :prefix-icon="Lock" show-password
+                        @keyup.enter="handleSubmit" />
+                </el-form-item>
+
+                <el-form-item v-if="!isLogin">
+                    <el-input v-model="form.confirmPassword" type="password" placeholder="确认密码" :prefix-icon="Lock"
+                        show-password />
+                </el-form-item>
+
+                <el-button type="primary" class="submit-btn" :loading="loading" @click="handleSubmit">
+                    {{ isLogin ? '立即登录' : '注册账号' }}
+                </el-button>
+
+                <div class="form-footer">
+                    <span @click="toggleMode" class="toggle-link">
+                        {{ isLogin ? '没有账号？去注册' : '已有账号？去登录' }}
+                    </span>
                 </div>
+            </el-form>
 
-                <el-form v-if="isLogin" ref="loginRef" :model="loginForm" size="large" @keyup.enter="handleLogin">
-                    <el-form-item>
-                        <el-input v-model="loginForm.username" placeholder="请输入用户名/学号" :prefix-icon="User" />
-                    </el-form-item>
-                    <el-form-item>
-                        <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" :prefix-icon="Lock"
-                            show-password />
-                    </el-form-item>
-                    <el-button type="primary" class="w-100 submit-btn" @click="handleLogin" :loading="loading">
-                        立即登录
-                    </el-button>
-                </el-form>
-
-                <el-form v-else ref="regRef" :model="regForm" size="large">
-                    <el-form-item>
-                        <el-input v-model="regForm.username" placeholder="设置用户名 (英文/数字)" :prefix-icon="User" />
-                    </el-form-item>
-                    <el-form-item>
-                        <el-input v-model="regForm.password" type="password" placeholder="设置登录密码" :prefix-icon="Lock" />
-                    </el-form-item>
-                    <el-form-item>
-                        <el-input v-model="regForm.real_name" placeholder="真实姓名" :prefix-icon="CreditCard" />
-                    </el-form-item>
-                    <el-form-item>
-                        <el-input v-model="regForm.student_id" placeholder="学号 (作为唯一凭证)" :prefix-icon="School" />
-                    </el-form-item>
-                    <el-button type="success" class="w-100 submit-btn" @click="handleRegister" :loading="loading">
-                        注册并登录
-                    </el-button>
-                </el-form>
+            <div class="admin-entry">
+                <el-divider>如果是管理员</el-divider>
+                <el-button text bg size="small" @click="goToAdmin">
+                    进入后台管理系统
+                </el-button>
             </div>
         </div>
     </div>
 </template>
 
-<script setup lang="ts">
-import { ref, reactive } from 'vue';
-import { useUserStore } from '../stores/user';
-import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
-import { User, Lock, School, CreditCard } from '@element-plus/icons-vue';
-
-const isLogin = ref(true);
-const loading = ref(false);
-const userStore = useUserStore();
-const router = useRouter();
-
-const loginForm = reactive({ username: '', password: '' });
-const regForm = reactive({ username: '', password: '', real_name: '', student_id: '' });
-
-const toggleMode = () => {
-    isLogin.value = !isLogin.value;
-    // 清空表单错误状态等（可选）
-};
-
-// 调试用的登录函数
-const handleLogin = async () => {
-    if (!loginForm.username || !loginForm.password) {
-        return ElMessage.warning('账号和密码不能为空');
-    }
-
-    loading.value = true;
-    console.log('正在尝试登录...', loginForm); // F12 Console 查看日志
-
-    try {
-        const success = await userStore.login(loginForm);
-        if (success) {
-            ElMessage.success('登录成功');
-            router.push('/');
-        } else {
-            // 具体的错误信息已经在 request.ts 拦截器中弹出了
-            console.error('登录返回 false');
-        }
-    } catch (error) {
-        console.error('登录过程发生异常:', error);
-    } finally {
-        loading.value = false;
-    }
-};
-
-const handleRegister = async () => {
-    if (!regForm.username || !regForm.password || !regForm.student_id) {
-        return ElMessage.warning('请填写所有必填项');
-    }
-    loading.value = true;
-    try {
-        await userStore.register(regForm);
-        ElMessage.success('注册成功，请直接登录');
-        isLogin.value = true;
-    } catch (error) {
-        console.error(error);
-    } finally {
-        loading.value = false;
-    }
-};
-</script>
-
 <style scoped>
-.login-wrapper {
+.login-container {
+    height: 100vh;
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    width: 100vw;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    /* 深色背景更显专业 */
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    /* 简单的背景渐变 */
 }
 
 .login-box {
-    display: flex;
-    width: 900px;
-    /* PC端宽度 */
-    height: 550px;
+    width: 420px;
     background: #fff;
+    padding: 40px;
     border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
-/* 左侧 Banner */
-.login-banner {
-    width: 50%;
-    background: url('https://source.unsplash.com/random/800x1200/?university,library') no-repeat center center;
-    background-size: cover;
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.login-banner::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(58, 80, 107, 0.7);
-    /* 遮罩层 */
-}
-
-.banner-content {
-    position: relative;
-    z-index: 2;
-    color: #fff;
+.login-header {
     text-align: center;
-}
-
-.banner-content h1 {
-    font-size: 2.5rem;
-    margin-bottom: 10px;
-}
-
-.banner-content p {
-    font-size: 1.2rem;
-    opacity: 0.9;
-}
-
-.sub-text {
-    margin-top: 20px;
-    font-size: 0.9rem;
-    letter-spacing: 2px;
-}
-
-/* 右侧 Form */
-.login-form-container {
-    width: 50%;
-    padding: 40px 50px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.form-header {
     margin-bottom: 30px;
-    text-align: left;
 }
 
-.form-header h2 {
-    font-size: 24px;
-    color: #333;
+.login-header h2 {
+    color: #409eff;
+    font-size: 28px;
     margin-bottom: 10px;
 }
 
-.switch-type {
-    font-size: 14px;
-    color: #666;
-}
-
-.switch-type a {
-    color: #409EFF;
-    cursor: pointer;
-    text-decoration: none;
-    margin-left: 5px;
+.login-header p {
+    color: #909399;
 }
 
 .submit-btn {
-    padding: 22px 0;
-    font-size: 16px;
-    border-radius: 6px;
+    width: 100%;
     margin-top: 10px;
+    font-weight: bold;
 }
 
-.w-100 {
-    width: 100%;
+.form-footer {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.toggle-link {
+    color: #409eff;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.toggle-link:hover {
+    text-decoration: underline;
+}
+
+/* ✅ 管理员入口样式 */
+.admin-entry {
+    margin-top: 30px;
+    text-align: center;
 }
 </style>

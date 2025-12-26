@@ -20,9 +20,11 @@ export const useUserStore = defineStore("user", () => {
     }
   };
 
-  // 注册动作
-  const register = async (registerForm: any) => {
-    await request.post("/auth/register", registerForm);
+  // 注册动作 (支持 FormData 上传图片)
+  const register = async (formData: FormData) => {
+    await request.post("/auth/register", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
   };
 
   // 登出
@@ -32,7 +34,7 @@ export const useUserStore = defineStore("user", () => {
     localStorage.removeItem("token");
   };
 
-  // ✅ 新增：恢复用户信息 (用于刷新页面后)
+  // 恢复用户信息 (用于刷新页面后)
   const fetchUserInfo = async () => {
     if (!token.value) return;
     try {
@@ -43,8 +45,6 @@ export const useUserStore = defineStore("user", () => {
       }
     } catch (error) {
       console.error("获取用户信息失败", error);
-      // 如果 Token 过期或无效，这里可以选择登出
-      // logout();
     }
   };
 

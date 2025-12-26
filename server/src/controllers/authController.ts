@@ -13,26 +13,40 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 2. 检查用户是否存在
+    // 2. 检查是否上传了认证图片
+    const file = req.file as Express.Multer.File | undefined;
+    if (!file) {
+      res.status(400).json({ message: "请上传认证材料图片（学生证/工作证）" });
+      return;
+    }
+
+    // 3. 检查用户是否存在
     const existingUser = await UserModel.findByUsername(username);
     if (existingUser) {
       res.status(409).json({ message: "用户名已存在" });
       return;
     }
 
-    // 3. 密码加密
+    // 4. 密码加密
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. 创建用户
+    // 5. 获取认证图片路径
+    const authMaterial = `/uploads/auth/${file.filename}`;
+
+    // 6. 创建用户（状态为待审核）
     const userId = await UserModel.create({
       username,
       password_hash: hashedPassword,
       student_id,
       real_name,
+      auth_material: authMaterial,
     });
 
-    res.status(201).json({ message: "注册成功", userId });
+    res.status(201).json({
+      message: "注册申请已提交，请等待管理员审核",
+      userId,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "服务器错误" });

@@ -10,10 +10,14 @@ const request = axios.create({
 // 请求拦截器：根据请求URL自动携带对应的 Token
 request.interceptors.request.use(
   (config) => {
-    // 判断是否为管理员接口（URL 包含 /admin/）
-    const isAdminRequest = config.url?.includes("/admin/");
+    // 判断是否为管理员接口（URL 包含 /admin/ 或 /stats/）
+    const isAdminRequest =
+      config.url?.includes("/admin/") || config.url?.includes("/stats/");
 
-    if (isAdminRequest) {
+    // 也可以根据当前页面路径判断（如果在管理员页面，就使用admin_token）
+    const isAdminPage = window.location.pathname.startsWith("/admin");
+
+    if (isAdminRequest || isAdminPage) {
       // 管理员请求，携带 admin_token
       const adminToken = localStorage.getItem("admin_token");
       if (adminToken) {
@@ -35,38 +39,50 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    // 判断是否为管理员接口
-    const isAdminRequest = error.config?.url?.includes("/admin/");
+    // 获取请求 URL，确保安全访问
+    const requestUrl = error.config?.url || "";
+
+    // 判断请求类型
+    const isAdminRequest = requestUrl.includes("/admin/");
+    // 只要 URL 包含 /login，就认为是登录接口（涵盖了 /login 和 /admin/login）
+    const isLoginRequest = requestUrl.includes("/login");
 
     // 如果收到 401，说明 Token 过期或未登录
     if (error.response && error.response.status === 401) {
-      // 特殊情况：如果是登录接口本身返回401，不要跳转页面
-      const isLoginRequest = error.config?.url?.includes("/login");
-
+      // 1. 如果是登录接口本身返回 401，说明是账号密码错误，绝对不要跳转
       if (isLoginRequest) {
-        // 登录接口返回401，只显示错误信息，不跳转
         ElMessage.error(error.response?.data?.message || "账号或密码错误");
         return Promise.reject(error);
       }
 
+      // 2. 如果是其他接口返回 401，说明 Token 失效，需要处理跳转
       if (isAdminRequest) {
-        // 管理员 token 失效，跳转到管理员登录页
-        ElMessage.error("管理员登录已过期，请重新登录");
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("admin_info");
-        window.location.href = "/admin/login";
+        // 管理员 token 失效
+        // 关键修复：如果当前已经在管理员登录页，不要再执行跳转（防止页面刷新）
+        if (!window.location.pathname.includes("/admin/login")) {
+          ElMessage.error("管理员登录已过期，请重新登录");
+          localStorage.removeItem("admin_token");
+          localStorage.removeItem("admin_info");
+          window.location.href = "/admin/login";
+        }
       } else {
-        // 前台 token 失效，跳转到前台登录页
-        ElMessage.error("登录已过期，请重新登录");
-        localStorage.removeItem("token");
-        window.location.href = "/login";
+        // 前台 token 失效
+        // 关键修复：如果当前已经在前台登录页，不要再执行跳转
+        if (!window.location.pathname.includes("/login")) {
+          ElMessage.error("登录已过期，请重新登录");
+          localStorage.removeItem("token");
+          window.location.href = "/login";
+        }
       }
-    } else if (error.response?.status === 400 || error.response?.status === 403) {
+    } else if (
+      error.response?.status === 400 ||
+      error.response?.status === 403
+    ) {
       // 400 或 403 错误，只显示错误信息，不跳转
       ElMessage.error(error.response?.data?.message || "请求失败");
     } else {
       // 其他错误
-      ElMessage.error(error.response?.data?.message || "请求失败");
+      ElMessage.error(error.response?.data?.message || "网络连接异常");
     }
     return Promise.reject(error);
   }

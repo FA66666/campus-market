@@ -95,7 +95,14 @@ const checkAutoCancel = () => {
     })
 }
 
-const getImageUrl = (img: string | null) => img || 'https://via.placeholder.com/100x100?text=No+Image'
+const getImageUrl = (img: string | null) => {
+    if (!img) return 'https://via.placeholder.com/100x100?text=No+Image'
+    // 如果已经是完整URL，直接返回
+    if (img.startsWith('http')) return img
+    // 拼接服务器基础URL
+    const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000'
+    return baseUrl + img
+}
 
 const getStatusTag = (status: number) => {
     const map = [
@@ -427,44 +434,78 @@ onUnmounted(() => {
 <style scoped>
 .order-container {
     max-width: 1000px;
-    margin: 20px auto;
-    padding: 20px;
+    margin: 0 auto;
+    padding: 30px;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
 }
 
 .page-header h2 {
-    color: #303133;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 15px;
-    margin-bottom: 20px;
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 30px;
 }
 
 .order-item {
-    margin-bottom: 20px;
+    margin-bottom: 24px;
+    border-radius: 16px;
+    border: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s;
+    overflow: hidden;
+}
+
+.order-item:hover {
+    box-shadow: 0 8px 30px rgba(102, 126, 234, 0.12);
+    transform: translateY(-2px);
+}
+
+.order-item :deep(.el-card__header) {
+    background: linear-gradient(135deg, #f8fafc 0%, #f0f2f5 100%);
+    padding: 16px 24px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.order-item :deep(.el-card__body) {
+    padding: 24px;
 }
 
 .order-header {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
+    font-size: 14px;
     color: #606266;
+}
+
+.order-no {
+    font-weight: 600;
+    color: #303133;
 }
 
 .order-content {
     display: flex;
     align-items: center;
+    gap: 20px;
 }
 
 .product-info {
     flex: 2;
     display: flex;
-    gap: 15px;
+    gap: 20px;
 }
 
 .product-thumb {
-    width: 80px;
-    height: 80px;
-    border-radius: 6px;
+    width: 90px;
+    height: 90px;
+    border-radius: 12px;
     border: 1px solid #eee;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .product-details {
@@ -474,23 +515,25 @@ onUnmounted(() => {
 }
 
 .product-title {
-    margin: 0 0 10px 0;
-    font-size: 16px;
+    margin: 0 0 12px 0;
+    font-size: 17px;
+    font-weight: 600;
     color: #303133;
 }
 
 .seller-name {
-    color: #909399;
-    font-size: 13px;
+    color: #606266;
+    font-size: 14px;
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
 .credit-tag {
     vertical-align: middle;
+    border-radius: 20px;
 }
 
 .order-meta {
@@ -501,30 +544,42 @@ onUnmounted(() => {
     gap: 15px;
     border-left: 1px solid #f0f2f5;
     border-right: 1px solid #f0f2f5;
-    padding: 0 20px;
+    padding: 0 25px;
 }
 
 .price-box p {
     margin: 0;
     text-align: center;
     color: #909399;
-    font-size: 12px;
+    font-size: 13px;
 }
 
 .total-price {
-    font-size: 18px;
-    font-weight: bold;
+    font-size: 22px;
+    font-weight: 700;
     color: #f56c6c !important;
 }
 
-/* 倒计时样式 */
+.status-box {
+    text-align: center;
+}
+
+.status-box :deep(.el-tag) {
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-weight: 500;
+}
+
 .countdown-tip {
-    font-size: 12px;
+    font-size: 13px;
     color: #f56c6c;
-    margin-top: 5px;
+    margin-top: 8px;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
+    background: #fef0f0;
+    padding: 4px 10px;
+    border-radius: 20px;
 }
 
 .text-expired {
@@ -535,18 +590,44 @@ onUnmounted(() => {
     flex: 1;
     display: flex;
     justify-content: flex-end;
-    padding-left: 20px;
+    padding-left: 25px;
 }
 
 .btn-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     align-items: flex-end;
 }
 
+.btn-group :deep(.el-button) {
+    border-radius: 8px;
+    min-width: 100px;
+}
+
 .info-text {
-    color: #999;
-    font-size: 13px;
+    color: #909399;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* 弹窗美化 */
+:deep(.el-dialog) {
+    border-radius: 16px;
+}
+
+:deep(.el-dialog__header) {
+    border-bottom: 1px solid #f0f2f5;
+    padding: 20px 24px;
+    margin: 0;
+}
+
+:deep(.el-dialog__body) {
+    padding: 24px;
+}
+
+:deep(.el-dialog__footer) {
+    border-top: 1px solid #f0f2f5;
+    padding: 16px 24px;
 }
 </style>

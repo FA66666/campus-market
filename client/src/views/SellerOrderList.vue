@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -18,6 +18,8 @@ interface SaleOrder {
     buyer_name: string
     delivery_snapshot: string
     receiver_phone: string
+    transaction_ref: string | null
+    payment_proof: string | null
     created_at: string
 }
 
@@ -29,6 +31,7 @@ interface MyItem {
     status: number
     main_image: string
     description?: string
+    reject_reason?: string
     created_at: string
 }
 
@@ -45,6 +48,11 @@ const editFile = ref<File | null>(null)
 // ✅ 新增：图片预览地址
 const previewImage = ref('')
 
+// 交易凭证预览
+const showPaymentProofModal = ref(false)
+const currentPaymentProof = ref('')
+const currentTransactionRef = ref('')
+
 const editForm = reactive({
     item_id: 0,
     title: '',
@@ -54,7 +62,14 @@ const editForm = reactive({
     status: 0
 })
 
-const getImageUrl = (img: string | null) => img || 'https://via.placeholder.com/100x100?text=No+Image'
+const getImageUrl = (img: string | null) => {
+    if (!img) return 'https://via.placeholder.com/100x100?text=No+Image'
+    // 如果已经是完整URL，直接返回
+    if (img.startsWith('http')) return img
+    // 拼接服务器基础URL
+    const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000'
+    return baseUrl + img
+}
 
 const getStatusTag = (status: number) => {
     const map = [
@@ -65,6 +80,30 @@ const getStatusTag = (status: number) => {
         { text: '已取消', type: 'info' }
     ]
     return map[status] || { text: '未知', type: '' }
+}
+
+// 商品状态文字
+const getItemStatusText = (status: number) => {
+    const map: Record<number, string> = {
+        0: '待审核',
+        1: '出售中',
+        2: '已售罄',
+        3: '审核未通过',
+        4: '已下架'
+    }
+    return map[status] || '未知'
+}
+
+// 商品状态标签类型
+const getItemStatusType = (status: number) => {
+    const map: Record<number, string> = {
+        0: 'warning',
+        1: 'success',
+        2: 'info',
+        3: 'danger',
+        4: 'info'
+    }
+    return map[status] || 'info'
 }
 
 // --- API 请求 ---
@@ -118,6 +157,17 @@ const contactBuyer = (order: SaleOrder) => {
             name: order.buyer_name
         }
     })
+}
+
+// 查看交易凭证
+const viewPaymentProof = (order: SaleOrder) => {
+    if (order.payment_proof) {
+        // 构建完整的图片URL
+        const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000'
+        currentPaymentProof.value = baseUrl + order.payment_proof
+        currentTransactionRef.value = order.transaction_ref || ''
+        showPaymentProofModal.value = true
+    }
 }
 
 // --- 编辑功能 ---
@@ -249,6 +299,14 @@ onMounted(() => fetchSales())
                                         <span class="address">{{ order.delivery_snapshot }}</span>
                                     </el-tooltip>
                                 </div>
+                                <!-- 交易凭证信息 -->
+                                <div v-if="order.payment_proof" class="info-row proof-row">
+                                    <span class="icon">🧾</span>
+                                    <span class="proof-label">已上传凭证</span>
+                                    <el-button type="primary" size="small" link @click="viewPaymentProof(order)">
+                                        点击查看
+                                    </el-button>
+                                </div>
                             </div>
 
                             <div class="status-action-box">
@@ -262,6 +320,10 @@ onMounted(() => fetchSales())
                                     <el-button v-if="order.status === 1" type="primary" size="small"
                                         @click="handleShip(order.order_id)">
                                         立即发货
+                                    </el-button>
+                                    <el-button v-if="order.payment_proof" type="success" size="small" plain
+                                        @click="viewPaymentProof(order)">
+                                        查看凭证
                                     </el-button>
                                     <el-button size="small" @click="contactBuyer(order)">联系买家</el-button>
                                     <div style="margin-top: 5px;">
@@ -297,11 +359,14 @@ onMounted(() => fetchSales())
                             </template>
                         </el-table-column>
                         <el-table-column prop="stock_quantity" label="库存" width="100" />
-                        <el-table-column label="状态" width="120">
+                        <el-table-column label="状态" width="140">
                             <template #default="scope">
-                                <el-tag :type="scope.row.status === 1 ? 'success' : (scope.row.status === 0 ? 'warning' : 'info')">
-                                    {{ scope.row.status === 1 ? '出售中' : (scope.row.status === 0 ? '待审核' : '已下架') }}
+                                <el-tag :type="getItemStatusType(scope.row.status)">
+                                    {{ getItemStatusText(scope.row.status) }}
                                 </el-tag>
+                                <el-tooltip v-if="scope.row.status === 3 && scope.row.reject_reason" :content="scope.row.reject_reason" placement="top">
+                                    <el-icon style="margin-left: 4px; cursor: pointer; color: #f56c6c;"><Warning /></el-icon>
+                                </el-tooltip>
                             </template>
                         </el-table-column>
                         <el-table-column label="发布时间" width="180">
@@ -361,75 +426,157 @@ onMounted(() => fetchSales())
                 </span>
             </template>
         </el-dialog>
+
+        <!-- 交易凭证预览弹窗 -->
+        <el-dialog v-model="showPaymentProofModal" title="交易凭证" width="500px">
+            <div class="payment-proof-content">
+                <div class="transaction-ref">
+                    <span class="label">交易流水号：</span>
+                    <span class="value">{{ currentTransactionRef || '未提供' }}</span>
+                </div>
+                <div class="proof-image">
+                    <img :src="currentPaymentProof" alt="交易凭证" />
+                </div>
+            </div>
+            <template #footer>
+                <el-button type="primary" @click="showPaymentProofModal = false">关闭</el-button>
+            </template>
+        </el-dialog>
     </div>
 </template>
 
 <style scoped>
-/* 此处保留原有的样式代码 */
 .page-container {
-    max-width: 1000px;
-    margin: 20px auto;
-    padding: 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 30px;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
 }
 
 .page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0;
+}
+
+.page-header :deep(.el-button) {
+    border-radius: 10px;
+}
+
+:deep(.el-tabs__nav-wrap::after) {
+    height: 1px;
+    background: #ebeef5;
+}
+
+:deep(.el-tabs__item) {
+    font-size: 15px;
+    font-weight: 500;
+}
+
+:deep(.el-tabs__item.is-active) {
+    color: #667eea;
+}
+
+:deep(.el-tabs__active-bar) {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .order-item {
-    margin-bottom: 20px;
+    margin-bottom: 24px;
+    border-radius: 16px;
+    border: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s;
+    overflow: hidden;
+}
+
+.order-item:hover {
+    box-shadow: 0 8px 30px rgba(102, 126, 234, 0.12);
+    transform: translateY(-2px);
+}
+
+.order-item :deep(.el-card__header) {
+    background: linear-gradient(135deg, #f8fafc 0%, #f0f2f5 100%);
+    padding: 14px 24px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.order-item :deep(.el-card__body) {
+    padding: 20px 24px;
 }
 
 .order-header {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
+    font-size: 14px;
     color: #606266;
+}
+
+.order-no {
+    font-weight: 600;
+    color: #303133;
 }
 
 .order-content {
     display: flex;
-    gap: 20px;
+    gap: 24px;
     align-items: center;
 }
 
 .product-info {
     flex: 2;
     display: flex;
-    gap: 15px;
+    gap: 18px;
 }
 
 .product-thumb {
-    width: 70px;
-    height: 70px;
-    border-radius: 6px;
+    width: 80px;
+    height: 80px;
+    border-radius: 12px;
     border: 1px solid #eee;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .product-details {
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: center;
 }
 
 .product-title {
-    margin: 0 0 5px 0;
-    font-size: 16px;
+    margin: 0 0 8px 0;
+    font-size: 17px;
+    font-weight: 600;
     color: #303133;
+}
+
+.amount {
+    font-size: 14px;
+    color: #606266;
 }
 
 .amount strong {
     color: #f56c6c;
+    font-size: 18px;
 }
 
 .buyer-info-box {
     flex: 2;
-    background: #f8f9fa;
-    padding: 10px;
-    border-radius: 6px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f0f2f5 100%);
+    padding: 14px 16px;
+    border-radius: 12px;
     font-size: 13px;
     color: #606266;
 }
@@ -437,8 +584,17 @@ onMounted(() => fetchSales())
 .info-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.info-row .icon {
+    font-size: 14px;
+}
+
+.buyer-name {
+    font-weight: 600;
+    color: #303133;
 }
 
 .address {
@@ -450,48 +606,145 @@ onMounted(() => fetchSales())
     vertical-align: middle;
 }
 
+.proof-row {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed #e4e7ed;
+}
+
+.proof-label {
+    color: #67c23a;
+    font-weight: 600;
+}
+
 .status-action-box {
     flex: 1.5;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 10px;
-    padding-left: 20px;
+    gap: 12px;
+    padding-left: 24px;
     border-left: 1px solid #f0f2f5;
+}
+
+.status-display :deep(.el-tag) {
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-weight: 500;
 }
 
 .action-buttons {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 5px;
+    gap: 8px;
+}
+
+.action-buttons :deep(.el-button) {
+    border-radius: 8px;
+    min-width: 90px;
 }
 
 .status-text {
     font-size: 13px;
     font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 20px;
 }
 
 .status-text.pending {
     color: #e6a23c;
+    background: #fdf6ec;
 }
 
 .status-text.shipping {
     color: #409eff;
+    background: #ecf5ff;
 }
 
 .status-text.success {
     color: #67c23a;
+    background: #f0f9eb;
 }
 
 .status-text.info {
     color: #909399;
+    background: #f4f4f5;
 }
 
-/* ✅ 新增：上传区域样式微调 */
+/* 商品表格美化 */
+:deep(.el-table) {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+:deep(.el-table th) {
+    background: linear-gradient(135deg, #f8fafc 0%, #f0f2f5 100%) !important;
+    font-weight: 600;
+}
+
+:deep(.el-table td) {
+    padding: 16px 0;
+}
+
 .upload-area {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+}
+
+/* 交易凭证预览样式 */
+.payment-proof-content {
+    text-align: center;
+}
+
+.transaction-ref {
+    margin-bottom: 20px;
+    padding: 16px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f0f2f5 100%);
+    border-radius: 12px;
+}
+
+.transaction-ref .label {
+    color: #606266;
+    font-weight: 500;
+}
+
+.transaction-ref .value {
+    color: #303133;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    font-size: 16px;
+}
+
+.proof-image {
+    padding: 15px;
+}
+
+.proof-image img {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* 弹窗美化 */
+:deep(.el-dialog) {
+    border-radius: 16px;
+}
+
+:deep(.el-dialog__header) {
+    border-bottom: 1px solid #f0f2f5;
+    padding: 20px 24px;
+    margin: 0;
+}
+
+:deep(.el-dialog__body) {
+    padding: 24px;
+}
+
+:deep(.el-dialog__footer) {
+    border-top: 1px solid #f0f2f5;
+    padding: 16px 24px;
 }
 </style>

@@ -44,7 +44,7 @@ export const getOrderTrend = async (
       SELECT
         DATE(created_at) AS date,
         COUNT(*) AS order_count,
-        SUM(total_price) AS total_amount
+        SUM(total_amount) AS total_amount
       FROM Orders
       WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
       GROUP BY DATE(created_at)
@@ -70,14 +70,14 @@ export const getCategoryStats = async (
     const sql = `
       SELECT
         c.category_id,
-        c.name AS category_name,
+        c.category_name,
         COUNT(DISTINCT i.item_id) AS item_count,
-        COALESCE(SUM(CASE WHEN o.status = 3 THEN oi.quantity * oi.price ELSE 0 END), 0) AS sales_amount
+        COALESCE(SUM(CASE WHEN o.status = 3 THEN oi.quantity * oi.unit_price ELSE 0 END), 0) AS sales_amount
       FROM Categories c
       LEFT JOIN Items i ON c.category_id = i.category_id AND i.status = 1
       LEFT JOIN Order_Items oi ON i.item_id = oi.item_id
       LEFT JOIN Orders o ON oi.order_id = o.order_id
-      GROUP BY c.category_id, c.name
+      GROUP BY c.category_id, c.category_name
       ORDER BY item_count DESC
     `;
 

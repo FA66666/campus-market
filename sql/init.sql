@@ -45,6 +45,7 @@ CREATE TABLE `Items` (
   `price` DECIMAL(12, 2) NOT NULL COMMENT '价格',
   `stock_quantity` INT DEFAULT 1 COMMENT '库存',
   `status` TINYINT DEFAULT 0 COMMENT '0:待审核, 1:上架, 2:缺货, 3:违规, 4:下架',
+  `reject_reason` VARCHAR(255) DEFAULT NULL COMMENT '审核驳回原因',
   `main_image` VARCHAR(512) NOT NULL COMMENT '主图路径',
   `deleted_at` DATETIME DEFAULT NULL,
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,

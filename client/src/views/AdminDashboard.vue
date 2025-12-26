@@ -1,7 +1,21 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import request from '../utils/request'
 import * as echarts from 'echarts'
+import {
+    DataLine,
+    Goods,
+    User,
+    List,
+    ChatDotRound,
+    Warning,
+    Checked,
+    UserFilled,
+    ShoppingCart,
+    Money,
+    TrendCharts
+} from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const activeTab = ref('dashboard') // dashboard, items, users, orders, reviews, complaints, auth
 
@@ -34,8 +48,16 @@ const complaintForm = ref({ result: 'resolved', reply: '', deduct_points: 0 })
 const showOrderModal = ref(false)
 const currentOrderDetail = ref<any>(null)
 
+// 认证材料预览弹窗
+const showAuthImageModal = ref(false)
+const currentAuthImage = ref('')
+
 // 批量选择
 const selectedItems = ref<number[]>([])
+
+// 驳回弹窗
+const showRejectModal = ref(false)
+const rejectForm = ref({ item_id: 0, reject_reason: '', is_batch: false })
 
 // 图表实例
 let orderTrendChart: echarts.ECharts | null = null
@@ -178,36 +200,85 @@ const fetchPendingItems = async () => {
     if (res.code === 200) pendingItems.value = res.data
 }
 
-const auditItem = async (id: number, action: string) => {
+// 打开驳回弹窗
+const openRejectModal = (itemId: number, isBatch: boolean = false) => {
+    rejectForm.value = { item_id: itemId, reject_reason: '', is_batch: isBatch }
+    showRejectModal.value = true
+}
+
+// 提交驳回
+const submitReject = async () => {
     try {
-        const res: any = await request.post(`/admin/items/${id}/audit`, { action })
-        if (res.code === 200) {
-            alert('操作成功')
-            fetchPendingItems()
+        if (rejectForm.value.is_batch) {
+            // 批量驳回
+            const res: any = await request.post('/admin/items/batch/audit', {
+                item_ids: selectedItems.value,
+                action: 'reject',
+                reject_reason: rejectForm.value.reject_reason || '审核未通过'
+            })
+            if (res.code === 200) {
+                ElMessage.success('批量驳回成功')
+                selectedItems.value = []
+                fetchPendingItems()
+            }
+        } else {
+            // 单个驳回
+            const res: any = await request.post(`/admin/items/${rejectForm.value.item_id}/audit`, {
+                action: 'reject',
+                reject_reason: rejectForm.value.reject_reason || '审核未通过'
+            })
+            if (res.code === 200) {
+                ElMessage.success('驳回成功')
+                fetchPendingItems()
+            }
         }
+        showRejectModal.value = false
     } catch (err) {
-        alert('操作失败')
+        ElMessage.error('操作失败')
     }
 }
 
-const batchAuditItems = async (action: string) => {
+// 通过审核
+const approveItem = async (id: number) => {
+    try {
+        const res: any = await request.post(`/admin/items/${id}/audit`, { action: 'approve' })
+        if (res.code === 200) {
+            ElMessage.success('审核通过')
+            fetchPendingItems()
+        }
+    } catch (err) {
+        ElMessage.error('操作失败')
+    }
+}
+
+// 批量通过
+const batchApproveItems = async () => {
     if (selectedItems.value.length === 0) {
-        alert('请先选择商品')
+        ElMessage.warning('请先选择商品')
         return
     }
     try {
         const res: any = await request.post('/admin/items/batch/audit', {
             item_ids: selectedItems.value,
-            action
+            action: 'approve'
         })
         if (res.code === 200) {
-            alert('批量操作成功')
+            ElMessage.success('批量通过成功')
             selectedItems.value = []
             fetchPendingItems()
         }
     } catch (err) {
-        alert('操作失败')
+        ElMessage.error('操作失败')
     }
+}
+
+// 批量驳回（打开弹窗）
+const batchRejectItems = () => {
+    if (selectedItems.value.length === 0) {
+        ElMessage.warning('请先选择商品')
+        return
+    }
+    openRejectModal(0, true)
 }
 
 const toggleItemSelect = (itemId: number) => {
@@ -236,16 +307,22 @@ const fetchUsers = async () => {
 const toggleBanUser = async (user: any) => {
     const action = user.status === 1 ? 'ban' : 'unban'
     const confirmText = action === 'ban' ? '封禁' : '解封'
-    if (!confirm(`确定要${confirmText}用户 ${user.username} 吗？`)) return
 
     try {
+        await ElMessageBox.confirm(`确定要${confirmText}用户 ${user.username} 吗？`, '确认操作', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+        })
         const res: any = await request.post(`/admin/users/${user.user_id}/manage`, { action })
         if (res.code === 200) {
-            alert('操作成功')
+            ElMessage.success('操作成功')
             fetchUsers()
         }
-    } catch (err) {
-        alert('操作失败')
+    } catch (err: any) {
+        if (err !== 'cancel') {
+            ElMessage.error('操作失败')
+        }
     }
 }
 
@@ -289,16 +366,22 @@ const fetchReviews = async () => {
 const toggleReviewVisibility = async (review: any) => {
     const action = review.is_hidden === 0 ? 'hide' : 'show'
     const confirmText = action === 'hide' ? '屏蔽' : '恢复显示'
-    if (!confirm(`确定要${confirmText}这条评价吗？`)) return
 
     try {
+        await ElMessageBox.confirm(`确定要${confirmText}这条评价吗？`, '确认操作', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+        })
         const res: any = await request.post(`/admin/reviews/${review.review_id}/toggle`, { action })
         if (res.code === 200) {
-            alert(res.message)
+            ElMessage.success(res.message || '操作成功')
             fetchReviews()
         }
-    } catch (err) {
-        alert('操作失败')
+    } catch (err: any) {
+        if (err !== 'cancel') {
+            ElMessage.error('操作失败')
+        }
     }
 }
 
@@ -319,12 +402,12 @@ const submitComplaintHandle = async () => {
     try {
         const res: any = await request.post(`/admin/complaints/${currentComplaintId.value}/resolve`, complaintForm.value)
         if (res.code === 200) {
-            alert('处理完成')
+            ElMessage.success('处理完成')
             showComplaintModal.value = false
             fetchComplaints()
         }
     } catch (err) {
-        alert('提交失败')
+        ElMessage.error('提交失败')
     }
 }
 
@@ -334,15 +417,21 @@ const fetchPendingAuthUsers = async () => {
     if (res.code === 200) pendingAuthUsers.value = res.data
 }
 
+const viewAuthImage = (imagePath: string) => {
+    // 构建完整的图片URL
+    currentAuthImage.value = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') + imagePath || 'http://localhost:3000' + imagePath
+    showAuthImageModal.value = true
+}
+
 const verifyUser = async (userId: number, action: string) => {
     try {
         const res: any = await request.post(`/admin/users/${userId}/verify`, { action })
         if (res.code === 200) {
-            alert(res.message || '操作成功')
+            ElMessage.success(res.message || '操作成功')
             fetchPendingAuthUsers()
         }
     } catch (err) {
-        alert('操作失败')
+        ElMessage.error('操作失败')
     }
 }
 
@@ -373,23 +462,36 @@ window.addEventListener('resize', () => {
 <template>
     <div class="admin-dashboard">
         <div class="sidebar">
-            <h3>后台管理</h3>
-            <ul>
-                <li :class="{ active: activeTab === 'dashboard' }" @click="switchTab('dashboard')">数据看板</li>
+            <ul class="menu-list">
+                <li :class="{ active: activeTab === 'dashboard' }" @click="switchTab('dashboard')">
+                    <el-icon><DataLine /></el-icon>
+                    <span>数据看板</span>
+                </li>
                 <li :class="{ active: activeTab === 'items' }" @click="switchTab('items')">
-                    商品审核
+                    <el-icon><Goods /></el-icon>
+                    <span>商品审核</span>
                     <span v-if="pendingStats.pending_items" class="badge">{{ pendingStats.pending_items }}</span>
                 </li>
-                <li :class="{ active: activeTab === 'users' }" @click="switchTab('users')">用户管理</li>
-                <li :class="{ active: activeTab === 'orders' }" @click="switchTab('orders')">订单管理</li>
-                <li :class="{ active: activeTab === 'reviews' }" @click="switchTab('reviews')">评价管理</li>
+                <li :class="{ active: activeTab === 'users' }" @click="switchTab('users')">
+                    <el-icon><User /></el-icon>
+                    <span>用户管理</span>
+                </li>
+                <li :class="{ active: activeTab === 'orders' }" @click="switchTab('orders')">
+                    <el-icon><List /></el-icon>
+                    <span>订单管理</span>
+                </li>
+                <li :class="{ active: activeTab === 'reviews' }" @click="switchTab('reviews')">
+                    <el-icon><ChatDotRound /></el-icon>
+                    <span>评价管理</span>
+                </li>
                 <li :class="{ active: activeTab === 'complaints' }" @click="switchTab('complaints')">
-                    投诉处理
-                    <span v-if="pendingStats.pending_complaints" class="badge">{{ pendingStats.pending_complaints
-                        }}</span>
+                    <el-icon><Warning /></el-icon>
+                    <span>投诉处理</span>
+                    <span v-if="pendingStats.pending_complaints" class="badge">{{ pendingStats.pending_complaints }}</span>
                 </li>
                 <li :class="{ active: activeTab === 'auth' }" @click="switchTab('auth')">
-                    认证审核
+                    <el-icon><Checked /></el-icon>
+                    <span>认证审核</span>
                     <span v-if="pendingStats.pending_auth" class="badge">{{ pendingStats.pending_auth }}</span>
                 </li>
             </ul>
@@ -397,783 +499,840 @@ window.addEventListener('resize', () => {
 
         <div class="main-content">
             <!-- 数据看板 -->
-            <div v-if="activeTab === 'dashboard'">
-                <h2>数据看板</h2>
+            <div v-if="activeTab === 'dashboard'" class="page-section">
+                <div class="page-header">
+                    <h2>数据看板</h2>
+                    <p class="subtitle">平台运营数据概览</p>
+                </div>
 
                 <!-- KPI卡片 -->
                 <div class="stats-cards">
-                    <div class="stat-card">
-                        <div class="stat-value">{{ platformStats.total_active_users || 0 }}</div>
-                        <div class="stat-label">活跃用户</div>
+                    <div class="stat-card users">
+                        <div class="stat-icon">
+                            <el-icon><UserFilled /></el-icon>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-value">{{ platformStats.total_active_users || 0 }}</div>
+                            <div class="stat-label">活跃用户</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value">{{ platformStats.active_items || 0 }}</div>
-                        <div class="stat-label">上架商品</div>
+                    <div class="stat-card items">
+                        <div class="stat-icon">
+                            <el-icon><Goods /></el-icon>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-value">{{ platformStats.active_items || 0 }}</div>
+                            <div class="stat-label">上架商品</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value">{{ platformStats.completed_orders || 0 }}</div>
-                        <div class="stat-label">完成订单</div>
+                    <div class="stat-card orders">
+                        <div class="stat-icon">
+                            <el-icon><ShoppingCart /></el-icon>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-value">{{ platformStats.completed_orders || 0 }}</div>
+                            <div class="stat-label">完成订单</div>
+                        </div>
                     </div>
-                    <div class="stat-card highlight">
-                        <div class="stat-value">¥{{ (platformStats.total_gmv || 0).toFixed(2) }}</div>
-                        <div class="stat-label">平台GMV</div>
+                    <div class="stat-card gmv">
+                        <div class="stat-icon">
+                            <el-icon><Money /></el-icon>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-value">¥{{ Number(platformStats.total_gmv || 0).toFixed(2) }}</div>
+                            <div class="stat-label">平台GMV</div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 待处理提醒 -->
                 <div class="pending-alerts" v-if="pendingStats.pending_items || pendingStats.pending_complaints || pendingStats.pending_auth">
-                    <div class="alert-item" v-if="pendingStats.pending_items" @click="switchTab('items')">
-                        <span class="alert-count">{{ pendingStats.pending_items }}</span> 件商品待审核
+                    <div class="alert-item warning" v-if="pendingStats.pending_items" @click="switchTab('items')">
+                        <el-icon><Goods /></el-icon>
+                        <span><strong>{{ pendingStats.pending_items }}</strong> 件商品待审核</span>
                     </div>
-                    <div class="alert-item" v-if="pendingStats.pending_complaints" @click="switchTab('complaints')">
-                        <span class="alert-count">{{ pendingStats.pending_complaints }}</span> 条投诉待处理
+                    <div class="alert-item danger" v-if="pendingStats.pending_complaints" @click="switchTab('complaints')">
+                        <el-icon><Warning /></el-icon>
+                        <span><strong>{{ pendingStats.pending_complaints }}</strong> 条投诉待处理</span>
                     </div>
-                    <div class="alert-item" v-if="pendingStats.pending_auth" @click="switchTab('auth')">
-                        <span class="alert-count">{{ pendingStats.pending_auth }}</span> 个用户待认证
+                    <div class="alert-item info" v-if="pendingStats.pending_auth" @click="switchTab('auth')">
+                        <el-icon><Checked /></el-icon>
+                        <span><strong>{{ pendingStats.pending_auth }}</strong> 个用户待认证</span>
                     </div>
                 </div>
 
                 <!-- 图表区域 -->
                 <div class="charts-container">
                     <div class="chart-row">
-                        <div id="orderTrendChart" class="chart-box"></div>
-                        <div id="categoryChart" class="chart-box"></div>
+                        <div class="chart-card">
+                            <div id="orderTrendChart" class="chart-box"></div>
+                        </div>
+                        <div class="chart-card">
+                            <div id="categoryChart" class="chart-box"></div>
+                        </div>
                     </div>
                     <div class="chart-row">
-                        <div id="orderStatusChart" class="chart-box"></div>
-                        <div id="creditChart" class="chart-box"></div>
+                        <div class="chart-card">
+                            <div id="orderStatusChart" class="chart-box"></div>
+                        </div>
+                        <div class="chart-card">
+                            <div id="creditChart" class="chart-box"></div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- 商品审核 -->
-            <div v-if="activeTab === 'items'">
-                <h2>待审核商品</h2>
-                <div class="batch-actions" v-if="pendingItems.length > 0">
-                    <button @click="toggleSelectAll" class="btn-primary">
-                        {{ selectedItems.length === pendingItems.length ? '取消全选' : '全选' }}
-                    </button>
-                    <button @click="batchAuditItems('approve')" class="btn-success"
-                        :disabled="selectedItems.length === 0">
-                        批量通过 ({{ selectedItems.length }})
-                    </button>
-                    <button @click="batchAuditItems('reject')" class="btn-danger"
-                        :disabled="selectedItems.length === 0">
-                        批量驳回 ({{ selectedItems.length }})
-                    </button>
+            <div v-if="activeTab === 'items'" class="page-section">
+                <div class="page-header">
+                    <h2>待审核商品</h2>
+                    <div class="batch-actions" v-if="pendingItems.length > 0">
+                        <el-button @click="toggleSelectAll" type="primary" plain>
+                            {{ selectedItems.length === pendingItems.length ? '取消全选' : '全选' }}
+                        </el-button>
+                        <el-button @click="batchApproveItems" type="success" :disabled="selectedItems.length === 0">
+                            批量通过 ({{ selectedItems.length }})
+                        </el-button>
+                        <el-button @click="batchRejectItems" type="danger" :disabled="selectedItems.length === 0">
+                            批量驳回 ({{ selectedItems.length }})
+                        </el-button>
+                    </div>
                 </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 40px;"></th>
-                            <th>ID</th>
-                            <th>标题</th>
-                            <th>卖家</th>
-                            <th>价格</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="item in pendingItems" :key="item.item_id">
-                            <td>
-                                <input type="checkbox" :checked="selectedItems.includes(item.item_id)"
-                                    @change="toggleItemSelect(item.item_id)" />
-                            </td>
-                            <td>{{ item.item_id }}</td>
-                            <td>{{ item.title }}</td>
-                            <td>{{ item.seller_name }}</td>
-                            <td>¥{{ item.price }}</td>
-                            <td>
-                                <button @click="auditItem(item.item_id, 'approve')" class="btn-success">通过</button>
-                                <button @click="auditItem(item.item_id, 'reject')" class="btn-danger">驳回</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <div v-if="pendingItems.length === 0" class="empty-tip">暂无待审核商品</div>
+                <div class="table-card">
+                    <el-table :data="pendingItems" stripe style="width: 100%">
+                        <el-table-column width="55">
+                            <template #default="{ row }">
+                                <el-checkbox :model-value="selectedItems.includes(row.item_id)" @change="toggleItemSelect(row.item_id)" />
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="item_id" label="ID" width="80" />
+                        <el-table-column prop="title" label="标题" min-width="200" />
+                        <el-table-column prop="seller_name" label="卖家" width="120" />
+                        <el-table-column label="价格" width="100">
+                            <template #default="{ row }">
+                                <span class="price">¥{{ row.price }}</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="160" fixed="right">
+                            <template #default="{ row }">
+                                <el-button type="success" size="small" @click="approveItem(row.item_id)">通过</el-button>
+                                <el-button type="danger" size="small" @click="openRejectModal(row.item_id)">驳回</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="pendingItems.length === 0" description="暂无待审核商品" />
+                </div>
             </div>
 
             <!-- 用户管理 -->
-            <div v-if="activeTab === 'users'">
-                <h2>用户管理</h2>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>用户名</th>
-                            <th>学号</th>
-                            <th>信誉分</th>
-                            <th>状态</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="u in users" :key="u.user_id">
-                            <td>{{ u.user_id }}</td>
-                            <td>{{ u.username }}</td>
-                            <td>{{ u.student_id || '-' }}</td>
-                            <td>{{ u.credit_score }}</td>
-                            <td>
-                                <span :class="u.status === 1 ? 'text-green' : 'text-red'">
-                                    {{ u.status === 1 ? '正常' : (u.status === 0 ? '封禁' : '待认证') }}
-                                </span>
-                            </td>
-                            <td>
-                                <button v-if="u.status === 1" @click="toggleBanUser(u)" class="btn-danger">封禁</button>
-                                <button v-else-if="u.status === 0" @click="toggleBanUser(u)"
-                                    class="btn-success">解封</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div v-if="activeTab === 'users'" class="page-section">
+                <div class="page-header">
+                    <h2>用户管理</h2>
+                </div>
+                <div class="table-card">
+                    <el-table :data="users" stripe style="width: 100%">
+                        <el-table-column prop="user_id" label="ID" width="80" />
+                        <el-table-column prop="username" label="用户名" width="150" />
+                        <el-table-column prop="student_id" label="学号" width="150">
+                            <template #default="{ row }">{{ row.student_id || '-' }}</template>
+                        </el-table-column>
+                        <el-table-column prop="credit_score" label="信誉分" width="100">
+                            <template #default="{ row }">
+                                <el-tag :type="row.credit_score >= 80 ? 'success' : row.credit_score >= 60 ? 'warning' : 'danger'">
+                                    {{ row.credit_score }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="100">
+                            <template #default="{ row }">
+                                <el-tag :type="row.status === 1 ? 'success' : row.status === 0 ? 'danger' : 'info'">
+                                    {{ row.status === 1 ? '正常' : (row.status === 0 ? '封禁' : '待认证') }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="100" fixed="right">
+                            <template #default="{ row }">
+                                <el-button v-if="row.status === 1" type="danger" size="small" @click="toggleBanUser(row)">封禁</el-button>
+                                <el-button v-else-if="row.status === 0" type="success" size="small" @click="toggleBanUser(row)">解封</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </div>
             </div>
 
             <!-- 订单管理 -->
-            <div v-if="activeTab === 'orders'">
-                <h2>订单管理</h2>
-                <div class="filter-bar">
-                    <select v-model="orderFilter.status">
-                        <option value="">全部状态</option>
-                        <option value="0">待付款</option>
-                        <option value="1">待发货</option>
-                        <option value="2">待收货</option>
-                        <option value="3">已完成</option>
-                        <option value="4">已取消</option>
-                    </select>
-                    <input type="text" v-model="orderFilter.keyword" placeholder="订单ID/用户名" />
-                    <input type="date" v-model="orderFilter.start_date" />
-                    <span>至</span>
-                    <input type="date" v-model="orderFilter.end_date" />
-                    <button @click="fetchOrders" class="btn-primary">搜索</button>
+            <div v-if="activeTab === 'orders'" class="page-section">
+                <div class="page-header">
+                    <h2>订单管理</h2>
                 </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>订单ID</th>
-                            <th>买家</th>
-                            <th>卖家</th>
-                            <th>金额</th>
-                            <th>状态</th>
-                            <th>创建时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="order in orders" :key="order.order_id">
-                            <td>{{ order.order_id }}</td>
-                            <td>{{ order.buyer_name }}</td>
-                            <td>{{ order.seller_name }}</td>
-                            <td>¥{{ order.total_price }}</td>
-                            <td>
-                                <span :class="'status-' + order.status">{{ getOrderStatusText(order.status) }}</span>
-                            </td>
-                            <td>{{ order.created_at?.substring(0, 16) }}</td>
-                            <td>
-                                <button @click="viewOrderDetail(order.order_id)" class="btn-primary">详情</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <div v-if="orders.length === 0" class="empty-tip">暂无订单数据</div>
+                <div class="filter-card">
+                    <el-select v-model="orderFilter.status" placeholder="全部状态" clearable style="width: 120px">
+                        <el-option label="待付款" value="0" />
+                        <el-option label="待发货" value="1" />
+                        <el-option label="待收货" value="2" />
+                        <el-option label="已完成" value="3" />
+                        <el-option label="已取消" value="4" />
+                    </el-select>
+                    <el-input v-model="orderFilter.keyword" placeholder="订单ID/用户名" clearable style="width: 180px" />
+                    <el-date-picker v-model="orderFilter.start_date" type="date" placeholder="开始日期" value-format="YYYY-MM-DD" style="width: 150px" />
+                    <span class="date-separator">至</span>
+                    <el-date-picker v-model="orderFilter.end_date" type="date" placeholder="结束日期" value-format="YYYY-MM-DD" style="width: 150px" />
+                    <el-button type="primary" @click="fetchOrders">搜索</el-button>
+                </div>
+                <div class="table-card">
+                    <el-table :data="orders" stripe style="width: 100%">
+                        <el-table-column prop="order_id" label="订单ID" width="100" />
+                        <el-table-column prop="buyer_name" label="买家" width="120" />
+                        <el-table-column prop="seller_name" label="卖家" width="120" />
+                        <el-table-column label="金额" width="100">
+                            <template #default="{ row }">
+                                <span class="price">¥{{ row.total_price }}</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="100">
+                            <template #default="{ row }">
+                                <el-tag :type="['info', 'warning', 'primary', 'success', 'danger'][row.status]">
+                                    {{ getOrderStatusText(row.status) }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="创建时间" width="160">
+                            <template #default="{ row }">{{ row.created_at?.substring(0, 16) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="80" fixed="right">
+                            <template #default="{ row }">
+                                <el-button type="primary" size="small" link @click="viewOrderDetail(row.order_id)">详情</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="orders.length === 0" description="暂无订单数据" />
+                </div>
             </div>
 
             <!-- 评价管理 -->
-            <div v-if="activeTab === 'reviews'">
-                <h2>评价管理</h2>
-                <div class="filter-bar">
-                    <select v-model="reviewFilter.status">
-                        <option value="">全部状态</option>
-                        <option value="0">正常</option>
-                        <option value="1">已屏蔽</option>
-                    </select>
-                    <input type="text" v-model="reviewFilter.keyword" placeholder="评价内容/用户名" />
-                    <button @click="fetchReviews" class="btn-primary">搜索</button>
+            <div v-if="activeTab === 'reviews'" class="page-section">
+                <div class="page-header">
+                    <h2>评价管理</h2>
                 </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>评价人</th>
-                            <th>被评价人</th>
-                            <th>评分</th>
-                            <th>内容</th>
-                            <th>状态</th>
-                            <th>时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="r in reviews" :key="r.review_id">
-                            <td>{{ r.review_id }}</td>
-                            <td>{{ r.reviewer_name }}</td>
-                            <td>{{ r.reviewed_name }}</td>
-                            <td>
-                                <span class="rating">{{ '★'.repeat(r.rating) }}{{ '☆'.repeat(5 - r.rating) }}</span>
-                            </td>
-                            <td class="content-cell">{{ r.content || '-' }}</td>
-                            <td>
-                                <span :class="r.is_hidden === 0 ? 'text-green' : 'text-red'">
-                                    {{ r.is_hidden === 0 ? '正常' : '已屏蔽' }}
-                                </span>
-                            </td>
-                            <td>{{ r.created_at?.substring(0, 10) }}</td>
-                            <td>
-                                <button v-if="r.is_hidden === 0" @click="toggleReviewVisibility(r)"
-                                    class="btn-danger">屏蔽</button>
-                                <button v-else @click="toggleReviewVisibility(r)" class="btn-success">恢复</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <div v-if="reviews.length === 0" class="empty-tip">暂无评价数据</div>
+                <div class="filter-card">
+                    <el-select v-model="reviewFilter.status" placeholder="全部状态" clearable style="width: 120px">
+                        <el-option label="正常" value="0" />
+                        <el-option label="已屏蔽" value="1" />
+                    </el-select>
+                    <el-input v-model="reviewFilter.keyword" placeholder="评价内容/用户名" clearable style="width: 180px" />
+                    <el-button type="primary" @click="fetchReviews">搜索</el-button>
+                </div>
+                <div class="table-card">
+                    <el-table :data="reviews" stripe style="width: 100%">
+                        <el-table-column prop="review_id" label="ID" width="80" />
+                        <el-table-column prop="reviewer_name" label="评价人" width="120" />
+                        <el-table-column prop="reviewed_name" label="被评价人" width="120" />
+                        <el-table-column label="评分" width="140">
+                            <template #default="{ row }">
+                                <el-rate v-model="row.rating" disabled />
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="content" label="内容" min-width="200" show-overflow-tooltip>
+                            <template #default="{ row }">{{ row.content || '-' }}</template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="100">
+                            <template #default="{ row }">
+                                <el-tag :type="row.is_hidden === 0 ? 'success' : 'danger'">
+                                    {{ row.is_hidden === 0 ? '正常' : '已屏蔽' }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="时间" width="120">
+                            <template #default="{ row }">{{ row.created_at?.substring(0, 10) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="80" fixed="right">
+                            <template #default="{ row }">
+                                <el-button v-if="row.is_hidden === 0" type="danger" size="small" @click="toggleReviewVisibility(row)">屏蔽</el-button>
+                                <el-button v-else type="success" size="small" @click="toggleReviewVisibility(row)">恢复</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="reviews.length === 0" description="暂无评价数据" />
+                </div>
             </div>
 
             <!-- 投诉处理 -->
-            <div v-if="activeTab === 'complaints'">
-                <h2>投诉列表</h2>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>投诉人</th>
-                            <th>投诉类型</th>
-                            <th>原因</th>
-                            <th>状态</th>
-                            <th>时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="c in complaints" :key="c.complaint_id">
-                            <td>{{ c.complaint_id }}</td>
-                            <td>{{ c.reporter_name }}</td>
-                            <td>{{ c.target_type === 1 ? '用户' : (c.target_type === 2 ? '商品' : '订单') }}</td>
-                            <td class="content-cell">{{ c.reason }}</td>
-                            <td>
-                                <span
-                                    :class="c.status === 0 ? 'text-orange' : (c.status === 1 ? 'text-gray' : 'text-green')">
-                                    {{ c.status === 0 ? '待处理' : (c.status === 1 ? '已驳回' : '已处理') }}
-                                </span>
-                            </td>
-                            <td>{{ c.created_at?.substring(0, 10) }}</td>
-                            <td>
-                                <button v-if="c.status === 0" @click="openComplaintHandle(c.complaint_id)"
-                                    class="btn-primary">处理</button>
-                                <span v-else class="text-gray">已归档</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <div v-if="complaints.length === 0" class="empty-tip">暂无投诉数据</div>
+            <div v-if="activeTab === 'complaints'" class="page-section">
+                <div class="page-header">
+                    <h2>投诉列表</h2>
+                </div>
+                <div class="table-card">
+                    <el-table :data="complaints" stripe style="width: 100%">
+                        <el-table-column prop="complaint_id" label="ID" width="80" />
+                        <el-table-column prop="reporter_name" label="投诉人" width="120" />
+                        <el-table-column label="投诉类型" width="100">
+                            <template #default="{ row }">
+                                <el-tag type="info">{{ row.target_type === 1 ? '用户' : (row.target_type === 2 ? '商品' : '订单') }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="reason" label="原因" min-width="200" show-overflow-tooltip />
+                        <el-table-column label="状态" width="100">
+                            <template #default="{ row }">
+                                <el-tag :type="row.status === 0 ? 'warning' : (row.status === 1 ? 'info' : 'success')">
+                                    {{ row.status === 0 ? '待处理' : (row.status === 1 ? '已驳回' : '已处理') }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="时间" width="120">
+                            <template #default="{ row }">{{ row.created_at?.substring(0, 10) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="100" fixed="right">
+                            <template #default="{ row }">
+                                <el-button v-if="row.status === 0" type="primary" size="small" @click="openComplaintHandle(row.complaint_id)">处理</el-button>
+                                <span v-else class="text-muted">已归档</span>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="complaints.length === 0" description="暂无投诉数据" />
+                </div>
             </div>
 
             <!-- 认证审核 -->
-            <div v-if="activeTab === 'auth'">
-                <h2>待认证用户</h2>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>用户名</th>
-                            <th>学号</th>
-                            <th>真实姓名</th>
-                            <th>认证材料</th>
-                            <th>注册时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="u in pendingAuthUsers" :key="u.user_id">
-                            <td>{{ u.user_id }}</td>
-                            <td>{{ u.username }}</td>
-                            <td>{{ u.student_id }}</td>
-                            <td>{{ u.real_name }}</td>
-                            <td>
-                                <a v-if="u.auth_material" :href="u.auth_material" target="_blank" class="link-primary">
-                                    查看材料
-                                </a>
-                                <span v-else class="text-gray">未提交</span>
-                            </td>
-                            <td>{{ u.created_at?.substring(0, 10) }}</td>
-                            <td>
-                                <button @click="verifyUser(u.user_id, 'approve')" class="btn-success">通过</button>
-                                <button @click="verifyUser(u.user_id, 'reject')" class="btn-danger">驳回</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <div v-if="pendingAuthUsers.length === 0" class="empty-tip">暂无待审核的认证申请</div>
+            <div v-if="activeTab === 'auth'" class="page-section">
+                <div class="page-header">
+                    <h2>待认证用户</h2>
+                </div>
+                <div class="table-card">
+                    <el-table :data="pendingAuthUsers" stripe style="width: 100%">
+                        <el-table-column prop="user_id" label="ID" width="80" />
+                        <el-table-column prop="username" label="用户名" width="150" />
+                        <el-table-column prop="student_id" label="学号" width="150" />
+                        <el-table-column prop="real_name" label="真实姓名" width="120" />
+                        <el-table-column label="认证材料" width="120">
+                            <template #default="{ row }">
+                                <el-button v-if="row.auth_material" type="primary" size="small" link @click="viewAuthImage(row.auth_material)">
+                                    查看图片
+                                </el-button>
+                                <span v-else class="text-muted">未提交</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="注册时间" width="120">
+                            <template #default="{ row }">{{ row.created_at?.substring(0, 10) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="160" fixed="right">
+                            <template #default="{ row }">
+                                <el-button type="success" size="small" @click="verifyUser(row.user_id, 'approve')">通过</el-button>
+                                <el-button type="danger" size="small" @click="verifyUser(row.user_id, 'reject')">驳回</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="pendingAuthUsers.length === 0" description="暂无待审核的认证申请" />
+                </div>
             </div>
         </div>
 
         <!-- 投诉处理弹窗 -->
-        <div v-if="showComplaintModal" class="modal-overlay">
-            <div class="modal-content">
-                <h3>处理投诉</h3>
-                <div class="form-group">
-                    <label>处理结果:</label>
-                    <select v-model="complaintForm.result">
-                        <option value="resolved">投诉成立（已解决）</option>
-                        <option value="rejected">驳回投诉</option>
-                    </select>
-                </div>
-                <div class="form-group" v-if="complaintForm.result === 'resolved'">
-                    <label>扣除信誉分:</label>
-                    <input type="number" v-model="complaintForm.deduct_points" min="0" />
-                </div>
-                <div class="form-group">
-                    <label>管理员回复:</label>
-                    <textarea v-model="complaintForm.reply" rows="3"></textarea>
-                </div>
-                <div class="actions">
-                    <button @click="showComplaintModal = false">取消</button>
-                    <button @click="submitComplaintHandle" class="btn-primary">确认处理</button>
-                </div>
-            </div>
-        </div>
+        <el-dialog v-model="showComplaintModal" title="处理投诉" width="480px">
+            <el-form label-width="100px">
+                <el-form-item label="处理结果">
+                    <el-select v-model="complaintForm.result" style="width: 100%">
+                        <el-option label="投诉成立（已解决）" value="resolved" />
+                        <el-option label="驳回投诉" value="rejected" />
+                    </el-select>
+                </el-form-item>
+                <el-form-item v-if="complaintForm.result === 'resolved'" label="扣除信誉分">
+                    <el-input-number v-model="complaintForm.deduct_points" :min="0" :max="100" />
+                </el-form-item>
+                <el-form-item label="管理员回复">
+                    <el-input v-model="complaintForm.reply" type="textarea" :rows="3" placeholder="请输入回复内容" />
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showComplaintModal = false">取消</el-button>
+                <el-button type="primary" @click="submitComplaintHandle">确认处理</el-button>
+            </template>
+        </el-dialog>
 
         <!-- 订单详情弹窗 -->
-        <div v-if="showOrderModal" class="modal-overlay">
-            <div class="modal-content modal-large">
-                <h3>订单详情 #{{ currentOrderDetail?.order?.order_id }}</h3>
-                <div class="order-info" v-if="currentOrderDetail">
-                    <div class="info-row">
-                        <span class="label">买家:</span>
-                        <span>{{ currentOrderDetail.order.buyer_name }} ({{ currentOrderDetail.order.buyer_real_name ||
-                            '-' }})</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="label">卖家:</span>
-                        <span>{{ currentOrderDetail.order.seller_name }} ({{ currentOrderDetail.order.seller_real_name
-                            || '-' }})</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="label">订单金额:</span>
-                        <span class="price">¥{{ currentOrderDetail.order.total_price }}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="label">订单状态:</span>
-                        <span>{{ getOrderStatusText(currentOrderDetail.order.status) }}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="label">创建时间:</span>
-                        <span>{{ currentOrderDetail.order.created_at }}</span>
-                    </div>
+        <el-dialog v-model="showOrderModal" title="订单详情" width="640px">
+            <div class="order-detail" v-if="currentOrderDetail">
+                <el-descriptions :column="2" border>
+                    <el-descriptions-item label="订单ID">{{ currentOrderDetail.order?.order_id }}</el-descriptions-item>
+                    <el-descriptions-item label="订单状态">
+                        <el-tag>{{ getOrderStatusText(currentOrderDetail.order?.status) }}</el-tag>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="买家">{{ currentOrderDetail.order?.buyer_name }} ({{ currentOrderDetail.order?.buyer_real_name || '-' }})</el-descriptions-item>
+                    <el-descriptions-item label="卖家">{{ currentOrderDetail.order?.seller_name }} ({{ currentOrderDetail.order?.seller_real_name || '-' }})</el-descriptions-item>
+                    <el-descriptions-item label="订单金额">
+                        <span class="price">¥{{ currentOrderDetail.order?.total_price }}</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="创建时间">{{ currentOrderDetail.order?.created_at }}</el-descriptions-item>
+                </el-descriptions>
 
-                    <h4>商品列表</h4>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>商品</th>
-                                <th>单价</th>
-                                <th>数量</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="item in currentOrderDetail.items" :key="item.item_id">
-                                <td>{{ item.title }}</td>
-                                <td>¥{{ item.price }}</td>
-                                <td>{{ item.quantity }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <h4 class="section-title">商品列表</h4>
+                <el-table :data="currentOrderDetail.items" size="small" border>
+                    <el-table-column prop="title" label="商品" />
+                    <el-table-column label="单价" width="100">
+                        <template #default="{ row }">¥{{ row.price }}</template>
+                    </el-table-column>
+                    <el-table-column prop="quantity" label="数量" width="80" />
+                </el-table>
 
-                    <h4 v-if="currentOrderDetail.reviews?.length">评价记录</h4>
-                    <div v-for="review in currentOrderDetail.reviews" :key="review.review_id" class="review-item">
-                        <span class="reviewer">{{ review.reviewer_name }}</span>
-                        <span class="rating">{{ '★'.repeat(review.rating) }}</span>
-                        <span class="content">{{ review.content || '无评价内容' }}</span>
+                <template v-if="currentOrderDetail.reviews?.length">
+                    <h4 class="section-title">评价记录</h4>
+                    <div v-for="review in currentOrderDetail.reviews" :key="review.review_id" class="review-card">
+                        <div class="review-header">
+                            <span class="reviewer">{{ review.reviewer_name }}</span>
+                            <el-rate v-model="review.rating" disabled />
+                        </div>
+                        <div class="review-content">{{ review.content || '无评价内容' }}</div>
                     </div>
-                </div>
-                <div class="actions">
-                    <button @click="showOrderModal = false" class="btn-primary">关闭</button>
-                </div>
+                </template>
             </div>
-        </div>
+            <template #footer>
+                <el-button type="primary" @click="showOrderModal = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 驳回原因弹窗 -->
+        <el-dialog v-model="showRejectModal" title="驳回商品" width="450px">
+            <el-form label-width="100px">
+                <el-form-item label="驳回原因">
+                    <el-input
+                        v-model="rejectForm.reject_reason"
+                        type="textarea"
+                        :rows="3"
+                        placeholder="请输入驳回原因，将通知卖家（选填）"
+                    />
+                </el-form-item>
+                <el-form-item label="常用原因">
+                    <div class="quick-reasons">
+                        <el-tag
+                            v-for="reason in ['商品信息不完整', '图片不清晰', '价格异常', '违禁商品', '描述与图片不符']"
+                            :key="reason"
+                            @click="rejectForm.reject_reason = reason"
+                            class="reason-tag"
+                            effect="plain"
+                        >
+                            {{ reason }}
+                        </el-tag>
+                    </div>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showRejectModal = false">取消</el-button>
+                <el-button type="danger" @click="submitReject">确认驳回</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 认证材料预览弹窗 -->
+        <el-dialog v-model="showAuthImageModal" title="认证材料预览" width="600px">
+            <div class="auth-image-preview">
+                <img :src="currentAuthImage" alt="认证材料" />
+            </div>
+            <template #footer>
+                <el-button type="primary" @click="showAuthImageModal = false">关闭</el-button>
+            </template>
+        </el-dialog>
     </div>
 </template>
 
 <style scoped>
 .admin-dashboard {
     display: flex;
-    min-height: 80vh;
+    height: calc(100vh - 60px);
+    background: #f5f7fa;
 }
 
+/* 侧边栏样式 */
 .sidebar {
-    width: 200px;
-    background: #f0f2f5;
-    padding: 20px;
+    width: 220px;
+    background: linear-gradient(180deg, #1e3a5f 0%, #152238 100%);
+    padding: 0;
+    flex-shrink: 0;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
 }
 
-.sidebar li {
+.menu-list {
     list-style: none;
-    padding: 10px;
+    padding: 12px 0;
+    margin: 0;
+}
+
+.menu-list li {
+    display: flex;
+    align-items: center;
+    padding: 14px 24px;
     cursor: pointer;
-    border-radius: 4px;
-    margin-bottom: 5px;
+    color: rgba(255, 255, 255, 0.7);
+    transition: all 0.3s ease;
+    border-left: 3px solid transparent;
+    margin: 4px 0;
+}
+
+.menu-list li .el-icon {
+    margin-right: 12px;
+    font-size: 18px;
+}
+
+.menu-list li span {
+    flex: 1;
+    font-size: 14px;
+}
+
+.menu-list li:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.menu-list li.active {
+    background: linear-gradient(90deg, rgba(64, 158, 255, 0.3) 0%, transparent 100%);
+    color: #fff;
+    border-left-color: #409eff;
+}
+
+.menu-list li .badge {
+    background: linear-gradient(135deg, #f56c6c 0%, #e64545 100%);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 20px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(245, 108, 108, 0.4);
+}
+
+/* 主内容区 */
+.main-content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.page-section {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 24px;
 }
 
-.sidebar li.active {
-    background: #409eff;
-    color: white;
+.page-header h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    color: #303133;
 }
 
-.sidebar li .badge {
-    background: #f56c6c;
-    color: white;
-    padding: 2px 6px;
-    border-radius: 10px;
-    font-size: 12px;
-}
-
-.sidebar li.active .badge {
-    background: white;
-    color: #f56c6c;
-}
-
-.main-content {
-    flex: 1;
-    padding: 20px;
-    overflow-x: auto;
+.page-header .subtitle {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: #909399;
 }
 
 /* 统计卡片 */
 .stats-cards {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 20px;
-    margin-bottom: 20px;
+    margin-bottom: 24px;
 }
 
 .stat-card {
-    flex: 1;
     background: white;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    text-align: center;
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    transition: all 0.3s ease;
 }
 
-.stat-card.highlight {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.stat-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 16px;
+}
+
+.stat-icon .el-icon {
+    font-size: 28px;
     color: white;
+}
+
+.stat-card.users .stat-icon {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.stat-card.items .stat-icon {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.stat-card.orders .stat-icon {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.stat-card.gmv .stat-icon {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+.stat-info {
+    flex: 1;
 }
 
 .stat-value {
     font-size: 28px;
-    font-weight: bold;
-    margin-bottom: 5px;
+    font-weight: 700;
+    color: #303133;
+    line-height: 1.2;
 }
 
 .stat-label {
     font-size: 14px;
-    color: #666;
-}
-
-.stat-card.highlight .stat-label {
-    color: rgba(255, 255, 255, 0.8);
+    color: #909399;
+    margin-top: 4px;
 }
 
 /* 待处理提醒 */
 .pending-alerts {
     display: flex;
-    gap: 15px;
-    margin-bottom: 20px;
+    gap: 16px;
+    margin-bottom: 24px;
 }
 
 .alert-item {
-    background: #fff3e0;
-    border-left: 4px solid #e6a23c;
-    padding: 10px 15px;
-    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.3s ease;
+    flex: 1;
+}
+
+.alert-item .el-icon {
+    font-size: 20px;
+}
+
+.alert-item.warning {
+    background: linear-gradient(135deg, #fff8e6 0%, #fff3cd 100%);
+    border: 1px solid #ffeeba;
+    color: #856404;
+}
+
+.alert-item.danger {
+    background: linear-gradient(135deg, #ffe6e6 0%, #ffcccc 100%);
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.alert-item.info {
+    background: linear-gradient(135deg, #e6f4ff 0%, #cce5ff 100%);
+    border: 1px solid #b8daff;
+    color: #004085;
 }
 
 .alert-item:hover {
-    background: #ffe8cc;
+    transform: translateX(4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.alert-count {
-    font-weight: bold;
-    color: #e6a23c;
-}
-
-/* 图表容器 */
+/* 图表区域 */
 .charts-container {
-    margin-top: 20px;
+    margin-top: 24px;
 }
 
 .chart-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 20px;
     margin-bottom: 20px;
 }
 
-.chart-box {
-    flex: 1;
-    height: 300px;
+.chart-card {
     background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-/* 筛选栏 */
-.filter-bar {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    margin-bottom: 15px;
-    flex-wrap: wrap;
-}
-
-.filter-bar select,
-.filter-bar input {
-    padding: 8px;
-    border: 1px solid #dcdfe6;
-    border-radius: 4px;
-}
-
-.filter-bar input[type="text"] {
-    width: 150px;
-}
-
-/* 表格 */
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-    background: white;
-}
-
-.data-table th,
-.data-table td {
-    border: 1px solid #ebeef5;
-    padding: 10px;
-    text-align: left;
-}
-
-.data-table th {
-    background-color: #f5f7fa;
-    font-weight: 500;
-}
-
-.data-table tr:hover {
-    background-color: #f5f7fa;
-}
-
-.content-cell {
-    max-width: 200px;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
-/* 按钮 */
-.btn-success {
-    background: #67c23a;
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-right: 5px;
+.chart-box {
+    height: 320px;
+    padding: 16px;
 }
 
-.btn-danger {
-    background: #f56c6c;
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
+/* 筛选卡片 */
+.filter-card {
+    background: white;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
-.btn-primary {
-    background: #409eff;
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.btn-success:hover {
-    background: #85ce61;
-}
-
-.btn-danger:hover {
-    background: #f78989;
-}
-
-.btn-primary:hover {
-    background: #66b1ff;
-}
-
-/* 状态文字 */
-.text-green {
-    color: #67c23a;
-}
-
-.text-red {
-    color: #f56c6c;
-}
-
-.text-orange {
-    color: #e6a23c;
-}
-
-.text-gray {
+.date-separator {
     color: #909399;
+    font-size: 14px;
 }
 
-.status-0 {
-    color: #909399;
+/* 表格卡片 */
+.table-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
-.status-1 {
-    color: #e6a23c;
+.table-card :deep(.el-table) {
+    border-radius: 8px;
+    overflow: hidden;
 }
 
-.status-2 {
-    color: #409eff;
+.table-card :deep(.el-table th) {
+    background: #f8fafc !important;
+    font-weight: 600;
+    color: #606266;
 }
 
-.status-3 {
-    color: #67c23a;
+.table-card :deep(.el-table--striped .el-table__body tr.el-table__row--striped td) {
+    background: #fafbfc;
 }
 
-.status-4 {
+/* 价格样式 */
+.price {
     color: #f56c6c;
+    font-weight: 600;
 }
 
-.rating {
-    color: #f7ba2a;
+/* 文本样式 */
+.text-muted {
+    color: #909399;
+    font-size: 13px;
 }
 
-.link-primary {
-    color: #409eff;
-    text-decoration: none;
-}
-
-.link-primary:hover {
-    text-decoration: underline;
-}
-
+/* 批量操作 */
 .batch-actions {
     display: flex;
     gap: 10px;
-    margin-bottom: 10px;
-}
-
-.batch-actions button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.empty-tip {
-    text-align: center;
-    padding: 40px;
-    color: #909399;
-}
-
-/* 弹窗样式 */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-}
-
-.modal-content {
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    width: 400px;
-    max-height: 80vh;
-    overflow-y: auto;
-}
-
-.modal-large {
-    width: 600px;
-}
-
-.form-group {
-    margin-bottom: 15px;
-}
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 500;
-}
-
-.form-group input,
-.form-group select,
-.form-group textarea {
-    width: 100%;
-    padding: 8px;
-    box-sizing: border-box;
-    border: 1px solid #dcdfe6;
-    border-radius: 4px;
-}
-
-.actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 20px;
 }
 
 /* 订单详情 */
-.order-info {
-    margin-top: 15px;
+.order-detail {
+    padding: 10px 0;
 }
 
-.info-row {
-    display: flex;
-    margin-bottom: 10px;
-}
-
-.info-row .label {
-    width: 80px;
-    color: #909399;
-}
-
-.info-row .price {
-    color: #f56c6c;
-    font-weight: bold;
-}
-
-.order-info h4 {
-    margin: 20px 0 10px;
-    padding-bottom: 5px;
+.section-title {
+    margin: 24px 0 12px;
+    padding-bottom: 8px;
     border-bottom: 1px solid #ebeef5;
+    font-size: 15px;
+    font-weight: 600;
+    color: #303133;
 }
 
-.review-item {
-    padding: 10px;
-    background: #f5f7fa;
-    border-radius: 4px;
-    margin-bottom: 10px;
+.review-card {
+    padding: 16px;
+    background: #f8fafc;
+    border-radius: 8px;
+    margin-bottom: 12px;
 }
 
-.review-item .reviewer {
-    font-weight: 500;
-    margin-right: 10px;
+.review-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
 }
 
-.review-item .content {
-    display: block;
-    margin-top: 5px;
+.review-header .reviewer {
+    font-weight: 600;
+    color: #303133;
+}
+
+.review-content {
     color: #606266;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* 响应式布局 */
+@media (max-width: 1400px) {
+    .stats-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 1200px) {
+    .chart-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        width: 200px;
+    }
+
+    .stats-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .pending-alerts {
+        flex-direction: column;
+    }
+
+    .filter-card {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+/* 驳回原因快捷标签 */
+.quick-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.reason-tag {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.reason-tag:hover {
+    background: #f56c6c;
+    color: white;
+    border-color: #f56c6c;
+}
+
+/* 认证材料预览 */
+.auth-image-preview {
+    text-align: center;
+    padding: 10px;
+}
+
+.auth-image-preview img {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 </style>

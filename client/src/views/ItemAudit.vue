@@ -10,8 +10,8 @@
 
             <el-table-column label="商品图" width="100">
                 <template #default="scope">
-                    <el-image :src="scope.row.main_image" style="width: 60px; height: 60px"
-                        :preview-src-list="[scope.row.main_image]" fit="cover" />
+                    <el-image :src="getImageUrl(scope.row.main_image)" style="width: 60px; height: 60px"
+                        :preview-src-list="[getImageUrl(scope.row.main_image)]" fit="cover" />
                 </template>
             </el-table-column>
 
@@ -50,6 +50,14 @@ import { ElMessage } from 'element-plus';
 
 const loading = ref(false);
 const pendingList = ref<any[]>([]);
+
+// 图片路径处理
+const getImageUrl = (img: string | null) => {
+    if (!img) return 'https://via.placeholder.com/60x60?text=No+Image';
+    if (img.startsWith('http')) return img;
+    const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+    return baseUrl + img;
+}
 
 const fetchPending = async () => {
     loading.value = true;

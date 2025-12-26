@@ -28,7 +28,7 @@ export const getPendingItems = async (
 export const auditItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const itemId = req.params.id;
-    const { action } = req.body; // action: 'approve' | 'reject'
+    const { action, reject_reason } = req.body; // action: 'approve' | 'reject', reject_reason: 驳回原因
 
     if (!["approve", "reject"].includes(action)) {
       res.status(400).json({ message: "无效的操作" });
@@ -38,10 +38,19 @@ export const auditItem = async (req: Request, res: Response): Promise<void> => {
     // approve -> 1 (上架), reject -> 3 (违规/驳回)
     const newStatus = action === "approve" ? 1 : 3;
 
-    await pool.query("UPDATE Items SET status = ? WHERE item_id = ?", [
-      newStatus,
-      itemId,
-    ]);
+    if (action === "reject") {
+      // 驳回时更新状态和驳回原因
+      await pool.query(
+        "UPDATE Items SET status = ?, reject_reason = ? WHERE item_id = ?",
+        [newStatus, reject_reason || "审核未通过", itemId]
+      );
+    } else {
+      // 通过时清空驳回原因
+      await pool.query(
+        "UPDATE Items SET status = ?, reject_reason = NULL WHERE item_id = ?",
+        [newStatus, itemId]
+      );
+    }
 
     res.json({ code: 200, message: "审核操作成功" });
   } catch (error) {
@@ -56,7 +65,7 @@ export const batchAuditItems = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { item_ids, action } = req.body; // item_ids: 数组, action: 'approve' | 'reject'
+    const { item_ids, action, reject_reason } = req.body; // item_ids: 数组, action: 'approve' | 'reject', reject_reason: 驳回原因
 
     if (!item_ids || !Array.isArray(item_ids) || item_ids.length === 0) {
       res.status(400).json({ message: "请选择要操作的商品" });
@@ -70,10 +79,17 @@ export const batchAuditItems = async (
 
     const newStatus = action === "approve" ? 1 : 3;
 
-    await pool.query("UPDATE Items SET status = ? WHERE item_id IN (?)", [
-      newStatus,
-      item_ids,
-    ]);
+    if (action === "reject") {
+      await pool.query(
+        "UPDATE Items SET status = ?, reject_reason = ? WHERE item_id IN (?)",
+        [newStatus, reject_reason || "审核未通过", item_ids]
+      );
+    } else {
+      await pool.query(
+        "UPDATE Items SET status = ?, reject_reason = NULL WHERE item_id IN (?)",
+        [newStatus, item_ids]
+      );
+    }
 
     res.json({ code: 200, message: "批量审核成功" });
   } catch (error) {
@@ -396,7 +412,7 @@ export const getOrders = async (
     const { status, keyword, start_date, end_date } = req.query;
     let sql = `
       SELECT
-        o.order_id, o.total_price, o.status, o.created_at, o.updated_at,
+        o.order_id, o.total_amount AS total_price, o.status, o.created_at, o.updated_at,
         buyer.username AS buyer_name, buyer.user_id AS buyer_id,
         seller.username AS seller_name, seller.user_id AS seller_id
       FROM Orders o
@@ -452,7 +468,9 @@ export const getOrderDetail = async (
     // 获取订单基本信息
     const [orders] = await pool.query<RowDataPacket[]>(
       `SELECT
-        o.*,
+        o.order_id, o.buyer_id, o.seller_id, o.total_amount AS total_price,
+        o.delivery_snapshot, o.receiver_phone, o.transaction_ref, o.payment_proof,
+        o.status, o.created_at, o.updated_at,
         buyer.username AS buyer_name, buyer.real_name AS buyer_real_name,
         seller.username AS seller_name, seller.real_name AS seller_real_name
       FROM Orders o
@@ -469,7 +487,7 @@ export const getOrderDetail = async (
 
     // 获取订单商品
     const [items] = await pool.query<RowDataPacket[]>(
-      `SELECT oi.*, i.title, i.cover_img
+      `SELECT oi.detail_id, oi.order_id, oi.item_id, oi.quantity, oi.unit_price AS price, i.title, i.main_image
        FROM Order_Items oi
        JOIN Items i ON oi.item_id = i.item_id
        WHERE oi.order_id = ?`,

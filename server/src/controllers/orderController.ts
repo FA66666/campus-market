@@ -157,6 +157,7 @@ export const getMySales = async (
     const sql = `
       SELECT o.order_id, o.total_amount, o.status, o.created_at, o.buyer_id,
              o.delivery_snapshot, o.receiver_phone,
+             o.transaction_ref, o.payment_proof,
              i.title AS item_title, i.main_image,
              u.real_name AS buyer_name
       FROM Orders o

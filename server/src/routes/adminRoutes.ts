@@ -15,6 +15,20 @@ import {
   // 订单管理
   getOrders,
   getOrderDetail,
+  // RBAC 管理
+  getSysUsers,
+  getSysUserDetail,
+  createSysUser,
+  updateSysUser,
+  deleteSysUser,
+  getRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+  getDeparts,
+  createDepart,
+  updateDepart,
+  deleteDepart,
 } from "../controllers/adminController";
 import { adminLogin } from "../controllers/adminAuthController";
 import { authenticateAdmin, requireRole } from "../middlewares/auth";
@@ -113,5 +127,28 @@ router.get(
   requireRole(ROLE_AUDITOR, ROLE_SUPER),
   getOrderDetail
 );
+
+// ============================================
+// 8. RBAC 管理模块 (仅允许: 超级管理员)
+// ============================================
+
+// 8.1 系统管理员管理
+router.get("/sys-users", authenticateAdmin, requireRole(ROLE_SUPER), getSysUsers);
+router.get("/sys-users/:id", authenticateAdmin, requireRole(ROLE_SUPER), getSysUserDetail);
+router.post("/sys-users", authenticateAdmin, requireRole(ROLE_SUPER), createSysUser);
+router.put("/sys-users/:id", authenticateAdmin, requireRole(ROLE_SUPER), updateSysUser);
+router.delete("/sys-users/:id", authenticateAdmin, requireRole(ROLE_SUPER), deleteSysUser);
+
+// 8.2 角色管理
+router.get("/roles", authenticateAdmin, requireRole(ROLE_SUPER), getRoles);
+router.post("/roles", authenticateAdmin, requireRole(ROLE_SUPER), createRole);
+router.put("/roles/:id", authenticateAdmin, requireRole(ROLE_SUPER), updateRole);
+router.delete("/roles/:id", authenticateAdmin, requireRole(ROLE_SUPER), deleteRole);
+
+// 8.3 部门管理
+router.get("/departs", authenticateAdmin, requireRole(ROLE_SUPER), getDeparts);
+router.post("/departs", authenticateAdmin, requireRole(ROLE_SUPER), createDepart);
+router.put("/departs/:id", authenticateAdmin, requireRole(ROLE_SUPER), updateDepart);
+router.delete("/departs/:id", authenticateAdmin, requireRole(ROLE_SUPER), deleteDepart);
 
 export default router;

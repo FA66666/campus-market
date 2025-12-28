@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import pool from "../config/db";
 import { RowDataPacket } from "mysql2";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
 
 // --- 商品审核模块 (原有) ---
 
@@ -514,5 +516,527 @@ export const getOrderDetail = async (
   } catch (error) {
     console.error("获取订单详情失败:", error);
     res.status(500).json({ message: "获取订单详情失败" });
+  }
+};
+
+// ============================================
+// RBAC 管理模块 - 系统管理员管理
+// ============================================
+
+/**
+ * 获取系统管理员列表
+ */
+export const getSysUsers = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const sql = `
+      SELECT
+        u.id, u.username, u.realname, u.org_code, u.status, u.created_at,
+        GROUP_CONCAT(DISTINCT r.role_name) AS role_names,
+        GROUP_CONCAT(DISTINCT d.depart_name) AS depart_names
+      FROM sys_user u
+      LEFT JOIN sys_user_role ur ON u.id = ur.user_id
+      LEFT JOIN sys_role r ON ur.role_id = r.id
+      LEFT JOIN sys_user_depart ud ON u.id = ud.user_id
+      LEFT JOIN sys_depart d ON ud.dep_id = d.id
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+    `;
+    const [rows] = await pool.query(sql);
+    res.json({ code: 200, data: rows });
+  } catch (error) {
+    console.error("获取管理员列表失败:", error);
+    res.status(500).json({ message: "获取管理员列表失败" });
+  }
+};
+
+/**
+ * 获取单个管理员详情（包含角色和部门ID）
+ */
+export const getSysUserDetail = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.params.id;
+
+    // 获取管理员基本信息
+    const [users] = await pool.query<RowDataPacket[]>(
+      "SELECT id, username, realname, org_code, status FROM sys_user WHERE id = ?",
+      [userId]
+    );
+
+    if (users.length === 0) {
+      res.status(404).json({ message: "管理员不存在" });
+      return;
+    }
+
+    // 获取关联的角色ID
+    const [roles] = await pool.query<RowDataPacket[]>(
+      "SELECT role_id FROM sys_user_role WHERE user_id = ?",
+      [userId]
+    );
+
+    // 获取关联的部门ID
+    const [departs] = await pool.query<RowDataPacket[]>(
+      "SELECT dep_id FROM sys_user_depart WHERE user_id = ?",
+      [userId]
+    );
+
+    res.json({
+      code: 200,
+      data: {
+        ...users[0],
+        role_ids: roles.map((r) => r.role_id),
+        depart_ids: departs.map((d) => d.dep_id),
+      },
+    });
+  } catch (error) {
+    console.error("获取管理员详情失败:", error);
+    res.status(500).json({ message: "获取管理员详情失败" });
+  }
+};
+
+/**
+ * 创建系统管理员
+ */
+export const createSysUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { username, password, realname, org_code, role_ids, depart_ids } = req.body;
+
+    if (!username || !password) {
+      res.status(400).json({ message: "用户名和密码不能为空" });
+      return;
+    }
+
+    // 检查用户名是否已存在
+    const [existing] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM sys_user WHERE username = ?",
+      [username]
+    );
+
+    if (existing.length > 0) {
+      res.status(400).json({ message: "用户名已存在" });
+      return;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // 生成UUID和密码哈希
+      const userId = uuidv4().replace(/-/g, "");
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+
+      // 插入管理员
+      await connection.query(
+        "INSERT INTO sys_user (id, username, realname, password, salt, org_code, status) VALUES (?, ?, ?, ?, ?, ?, 1)",
+        [userId, username, realname || "", passwordHash, salt, org_code || ""]
+      );
+
+      // 分配角色
+      if (role_ids && role_ids.length > 0) {
+        for (const roleId of role_ids) {
+          const relId = uuidv4().replace(/-/g, "");
+          await connection.query(
+            "INSERT INTO sys_user_role (id, user_id, role_id) VALUES (?, ?, ?)",
+            [relId, userId, roleId]
+          );
+        }
+      }
+
+      // 分配部门
+      if (depart_ids && depart_ids.length > 0) {
+        for (const depId of depart_ids) {
+          const relId = uuidv4().replace(/-/g, "");
+          await connection.query(
+            "INSERT INTO sys_user_depart (id, user_id, dep_id) VALUES (?, ?, ?)",
+            [relId, userId, depId]
+          );
+        }
+      }
+
+      await connection.commit();
+      res.json({ code: 200, message: "管理员创建成功", data: { id: userId } });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("创建管理员失败:", error);
+    res.status(500).json({ message: "创建管理员失败" });
+  }
+};
+
+/**
+ * 更新系统管理员
+ */
+export const updateSysUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.params.id;
+    const { realname, org_code, status, password, role_ids, depart_ids } = req.body;
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // 更新基本信息
+      let updateSql = "UPDATE sys_user SET realname = ?, org_code = ?, status = ?";
+      const params: any[] = [realname || "", org_code || "", status ?? 1];
+
+      // 如果提供了新密码，则更新密码
+      if (password) {
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(password, salt);
+        updateSql += ", password = ?, salt = ?";
+        params.push(passwordHash, salt);
+      }
+
+      updateSql += " WHERE id = ?";
+      params.push(userId);
+
+      await connection.query(updateSql, params);
+
+      // 更新角色关联（先删后插）
+      if (role_ids !== undefined) {
+        await connection.query("DELETE FROM sys_user_role WHERE user_id = ?", [userId]);
+        if (role_ids && role_ids.length > 0) {
+          for (const roleId of role_ids) {
+            const relId = uuidv4().replace(/-/g, "");
+            await connection.query(
+              "INSERT INTO sys_user_role (id, user_id, role_id) VALUES (?, ?, ?)",
+              [relId, userId, roleId]
+            );
+          }
+        }
+      }
+
+      // 更新部门关联（先删后插）
+      if (depart_ids !== undefined) {
+        await connection.query("DELETE FROM sys_user_depart WHERE user_id = ?", [userId]);
+        if (depart_ids && depart_ids.length > 0) {
+          for (const depId of depart_ids) {
+            const relId = uuidv4().replace(/-/g, "");
+            await connection.query(
+              "INSERT INTO sys_user_depart (id, user_id, dep_id) VALUES (?, ?, ?)",
+              [relId, userId, depId]
+            );
+          }
+        }
+      }
+
+      await connection.commit();
+      res.json({ code: 200, message: "管理员更新成功" });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("更新管理员失败:", error);
+    res.status(500).json({ message: "更新管理员失败" });
+  }
+};
+
+/**
+ * 删除系统管理员
+ */
+export const deleteSysUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.params.id;
+
+    // 检查是否是当前登录用户（不能删除自己）
+    const currentUserId = (req as any).user?.userId;
+    if (userId === currentUserId) {
+      res.status(400).json({ message: "不能删除当前登录账号" });
+      return;
+    }
+
+    // 级联删除会自动删除 sys_user_role 和 sys_user_depart 中的关联记录
+    await pool.query("DELETE FROM sys_user WHERE id = ?", [userId]);
+    res.json({ code: 200, message: "管理员删除成功" });
+  } catch (error) {
+    console.error("删除管理员失败:", error);
+    res.status(500).json({ message: "删除管理员失败" });
+  }
+};
+
+// ============================================
+// RBAC 管理模块 - 角色管理
+// ============================================
+
+/**
+ * 获取角色列表
+ */
+export const getRoles = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sql = `
+      SELECT r.*, COUNT(ur.user_id) AS user_count
+      FROM sys_role r
+      LEFT JOIN sys_user_role ur ON r.id = ur.role_id
+      GROUP BY r.id
+      ORDER BY r.role_code
+    `;
+    const [rows] = await pool.query(sql);
+    res.json({ code: 200, data: rows });
+  } catch (error) {
+    console.error("获取角色列表失败:", error);
+    res.status(500).json({ message: "获取角色列表失败" });
+  }
+};
+
+/**
+ * 创建角色
+ */
+export const createRole = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { role_name, role_code } = req.body;
+
+    if (!role_name || !role_code) {
+      res.status(400).json({ message: "角色名称和编码不能为空" });
+      return;
+    }
+
+    // 检查编码是否已存在
+    const [existing] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM sys_role WHERE role_code = ?",
+      [role_code]
+    );
+
+    if (existing.length > 0) {
+      res.status(400).json({ message: "角色编码已存在" });
+      return;
+    }
+
+    const roleId = uuidv4().replace(/-/g, "");
+    await pool.query(
+      "INSERT INTO sys_role (id, role_name, role_code) VALUES (?, ?, ?)",
+      [roleId, role_name, role_code]
+    );
+
+    res.json({ code: 200, message: "角色创建成功", data: { id: roleId } });
+  } catch (error) {
+    console.error("创建角色失败:", error);
+    res.status(500).json({ message: "创建角色失败" });
+  }
+};
+
+/**
+ * 更新角色
+ */
+export const updateRole = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const roleId = req.params.id;
+    const { role_name, role_code } = req.body;
+
+    if (!role_name || !role_code) {
+      res.status(400).json({ message: "角色名称和编码不能为空" });
+      return;
+    }
+
+    // 检查编码是否与其他角色冲突
+    const [existing] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM sys_role WHERE role_code = ? AND id != ?",
+      [role_code, roleId]
+    );
+
+    if (existing.length > 0) {
+      res.status(400).json({ message: "角色编码已被其他角色使用" });
+      return;
+    }
+
+    await pool.query(
+      "UPDATE sys_role SET role_name = ?, role_code = ? WHERE id = ?",
+      [role_name, role_code, roleId]
+    );
+
+    res.json({ code: 200, message: "角色更新成功" });
+  } catch (error) {
+    console.error("更新角色失败:", error);
+    res.status(500).json({ message: "更新角色失败" });
+  }
+};
+
+/**
+ * 删除角色
+ */
+export const deleteRole = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const roleId = req.params.id;
+
+    // 检查是否有用户使用此角色
+    const [users] = await pool.query<RowDataPacket[]>(
+      "SELECT COUNT(*) AS count FROM sys_user_role WHERE role_id = ?",
+      [roleId]
+    );
+
+    if (users[0].count > 0) {
+      res.status(400).json({ message: "该角色已被分配给用户，无法删除" });
+      return;
+    }
+
+    await pool.query("DELETE FROM sys_role WHERE id = ?", [roleId]);
+    res.json({ code: 200, message: "角色删除成功" });
+  } catch (error) {
+    console.error("删除角色失败:", error);
+    res.status(500).json({ message: "删除角色失败" });
+  }
+};
+
+// ============================================
+// RBAC 管理模块 - 部门管理
+// ============================================
+
+/**
+ * 获取部门列表
+ */
+export const getDeparts = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const sql = `
+      SELECT d.*, COUNT(ud.user_id) AS user_count
+      FROM sys_depart d
+      LEFT JOIN sys_user_depart ud ON d.id = ud.dep_id
+      GROUP BY d.id
+      ORDER BY d.org_code
+    `;
+    const [rows] = await pool.query(sql);
+    res.json({ code: 200, data: rows });
+  } catch (error) {
+    console.error("获取部门列表失败:", error);
+    res.status(500).json({ message: "获取部门列表失败" });
+  }
+};
+
+/**
+ * 创建部门
+ */
+export const createDepart = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { depart_name, org_code } = req.body;
+
+    if (!depart_name || !org_code) {
+      res.status(400).json({ message: "部门名称和组织编码不能为空" });
+      return;
+    }
+
+    // 检查编码是否已存在
+    const [existing] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM sys_depart WHERE org_code = ?",
+      [org_code]
+    );
+
+    if (existing.length > 0) {
+      res.status(400).json({ message: "组织编码已存在" });
+      return;
+    }
+
+    const depId = uuidv4().replace(/-/g, "");
+    await pool.query(
+      "INSERT INTO sys_depart (id, depart_name, org_code) VALUES (?, ?, ?)",
+      [depId, depart_name, org_code]
+    );
+
+    res.json({ code: 200, message: "部门创建成功", data: { id: depId } });
+  } catch (error) {
+    console.error("创建部门失败:", error);
+    res.status(500).json({ message: "创建部门失败" });
+  }
+};
+
+/**
+ * 更新部门
+ */
+export const updateDepart = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const depId = req.params.id;
+    const { depart_name, org_code } = req.body;
+
+    if (!depart_name || !org_code) {
+      res.status(400).json({ message: "部门名称和组织编码不能为空" });
+      return;
+    }
+
+    // 检查编码是否与其他部门冲突
+    const [existing] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM sys_depart WHERE org_code = ? AND id != ?",
+      [org_code, depId]
+    );
+
+    if (existing.length > 0) {
+      res.status(400).json({ message: "组织编码已被其他部门使用" });
+      return;
+    }
+
+    await pool.query(
+      "UPDATE sys_depart SET depart_name = ?, org_code = ? WHERE id = ?",
+      [depart_name, org_code, depId]
+    );
+
+    res.json({ code: 200, message: "部门更新成功" });
+  } catch (error) {
+    console.error("更新部门失败:", error);
+    res.status(500).json({ message: "更新部门失败" });
+  }
+};
+
+/**
+ * 删除部门
+ */
+export const deleteDepart = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const depId = req.params.id;
+
+    // 检查是否有用户属于此部门
+    const [users] = await pool.query<RowDataPacket[]>(
+      "SELECT COUNT(*) AS count FROM sys_user_depart WHERE dep_id = ?",
+      [depId]
+    );
+
+    if (users[0].count > 0) {
+      res.status(400).json({ message: "该部门下有管理员，无法删除" });
+      return;
+    }
+
+    await pool.query("DELETE FROM sys_depart WHERE id = ?", [depId]);
+    res.json({ code: 200, message: "部门删除成功" });
+  } catch (error) {
+    console.error("删除部门失败:", error);
+    res.status(500).json({ message: "删除部门失败" });
   }
 };

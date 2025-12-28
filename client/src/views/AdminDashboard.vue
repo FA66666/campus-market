@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, computed } from 'vue'
 import request from '../utils/request'
 import * as echarts from 'echarts'
 import {
@@ -13,11 +13,14 @@ import {
     UserFilled,
     ShoppingCart,
     Money,
-    TrendCharts
+    TrendCharts,
+    Setting,
+    Avatar,
+    OfficeBuilding
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const activeTab = ref('dashboard') // dashboard, items, users, orders, reviews, complaints, auth
+const activeTab = ref('dashboard') // dashboard, items, users, orders, reviews, complaints, auth, sysUsers, roles, departs
 
 // 数据列表
 const pendingItems = ref<any[]>([])
@@ -26,6 +29,18 @@ const orders = ref<any[]>([])
 const reviews = ref<any[]>([])
 const complaints = ref<any[]>([])
 const pendingAuthUsers = ref<any[]>([])
+
+// RBAC 数据
+const sysUsers = ref<any[]>([])
+const roles = ref<any[]>([])
+const departs = ref<any[]>([])
+
+// 当前管理员信息
+const currentAdmin = computed(() => {
+    const info = localStorage.getItem('admin_info')
+    return info ? JSON.parse(info) : {}
+})
+const isSuperAdmin = computed(() => currentAdmin.value.roles?.includes('SUPER_ADMIN'))
 
 // 统计数据
 const platformStats = ref<any>({})
@@ -58,6 +73,26 @@ const selectedItems = ref<number[]>([])
 // 驳回弹窗
 const showRejectModal = ref(false)
 const rejectForm = ref({ item_id: 0, reject_reason: '', is_batch: false })
+
+// RBAC 弹窗
+const showSysUserModal = ref(false)
+const showRoleModal = ref(false)
+const showDepartModal = ref(false)
+const isEditMode = ref(false)
+
+// RBAC 表单
+const sysUserForm = ref({
+    id: '',
+    username: '',
+    password: '',
+    realname: '',
+    org_code: '',
+    status: 1,
+    role_ids: [] as string[],
+    depart_ids: [] as string[]
+})
+const roleForm = ref({ id: '', role_name: '', role_code: '' })
+const departForm = ref({ id: '', depart_name: '', org_code: '' })
 
 // 图表实例
 let orderTrendChart: echarts.ECharts | null = null
@@ -435,6 +470,226 @@ const verifyUser = async (userId: number, action: string) => {
     }
 }
 
+// ============================================
+// RBAC 管理方法
+// ============================================
+
+// --- 系统管理员管理 ---
+const fetchSysUsers = async () => {
+    const res: any = await request.get('/admin/sys-users')
+    if (res.code === 200) sysUsers.value = res.data
+}
+
+const openSysUserModal = async (user?: any) => {
+    isEditMode.value = !!user
+    if (user) {
+        // 编辑模式：获取详情
+        const res: any = await request.get(`/admin/sys-users/${user.id}`)
+        if (res.code === 200) {
+            sysUserForm.value = {
+                id: res.data.id,
+                username: res.data.username,
+                password: '',
+                realname: res.data.realname || '',
+                org_code: res.data.org_code || '',
+                status: res.data.status,
+                role_ids: res.data.role_ids || [],
+                depart_ids: res.data.depart_ids || []
+            }
+        }
+    } else {
+        // 新增模式
+        sysUserForm.value = {
+            id: '',
+            username: '',
+            password: '',
+            realname: '',
+            org_code: '',
+            status: 1,
+            role_ids: [],
+            depart_ids: []
+        }
+    }
+    // 确保有角色和部门列表
+    if (roles.value.length === 0) await fetchRoles()
+    if (departs.value.length === 0) await fetchDeparts()
+    showSysUserModal.value = true
+}
+
+const saveSysUser = async () => {
+    try {
+        if (!sysUserForm.value.username) {
+            ElMessage.warning('请输入用户名')
+            return
+        }
+        if (!isEditMode.value && !sysUserForm.value.password) {
+            ElMessage.warning('请输入密码')
+            return
+        }
+
+        if (isEditMode.value) {
+            const res: any = await request.put(`/admin/sys-users/${sysUserForm.value.id}`, sysUserForm.value)
+            if (res.code === 200) {
+                ElMessage.success('更新成功')
+                showSysUserModal.value = false
+                fetchSysUsers()
+            }
+        } else {
+            const res: any = await request.post('/admin/sys-users', sysUserForm.value)
+            if (res.code === 200) {
+                ElMessage.success('创建成功')
+                showSysUserModal.value = false
+                fetchSysUsers()
+            }
+        }
+    } catch (err: any) {
+        ElMessage.error(err.response?.data?.message || '操作失败')
+    }
+}
+
+const deleteSysUser = async (user: any) => {
+    try {
+        await ElMessageBox.confirm(`确定要删除管理员 ${user.username} 吗？`, '确认删除', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+        })
+        const res: any = await request.delete(`/admin/sys-users/${user.id}`)
+        if (res.code === 200) {
+            ElMessage.success('删除成功')
+            fetchSysUsers()
+        }
+    } catch (err: any) {
+        if (err !== 'cancel') {
+            ElMessage.error(err.response?.data?.message || '删除失败')
+        }
+    }
+}
+
+// --- 角色管理 ---
+const fetchRoles = async () => {
+    const res: any = await request.get('/admin/roles')
+    if (res.code === 200) roles.value = res.data
+}
+
+const openRoleModal = (role?: any) => {
+    isEditMode.value = !!role
+    if (role) {
+        roleForm.value = { id: role.id, role_name: role.role_name, role_code: role.role_code }
+    } else {
+        roleForm.value = { id: '', role_name: '', role_code: '' }
+    }
+    showRoleModal.value = true
+}
+
+const saveRole = async () => {
+    try {
+        if (!roleForm.value.role_name || !roleForm.value.role_code) {
+            ElMessage.warning('请填写角色名称和编码')
+            return
+        }
+
+        if (isEditMode.value) {
+            const res: any = await request.put(`/admin/roles/${roleForm.value.id}`, roleForm.value)
+            if (res.code === 200) {
+                ElMessage.success('更新成功')
+                showRoleModal.value = false
+                fetchRoles()
+            }
+        } else {
+            const res: any = await request.post('/admin/roles', roleForm.value)
+            if (res.code === 200) {
+                ElMessage.success('创建成功')
+                showRoleModal.value = false
+                fetchRoles()
+            }
+        }
+    } catch (err: any) {
+        ElMessage.error(err.response?.data?.message || '操作失败')
+    }
+}
+
+const deleteRole = async (role: any) => {
+    try {
+        await ElMessageBox.confirm(`确定要删除角色 ${role.role_name} 吗？`, '确认删除', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+        })
+        const res: any = await request.delete(`/admin/roles/${role.id}`)
+        if (res.code === 200) {
+            ElMessage.success('删除成功')
+            fetchRoles()
+        }
+    } catch (err: any) {
+        if (err !== 'cancel') {
+            ElMessage.error(err.response?.data?.message || '删除失败')
+        }
+    }
+}
+
+// --- 部门管理 ---
+const fetchDeparts = async () => {
+    const res: any = await request.get('/admin/departs')
+    if (res.code === 200) departs.value = res.data
+}
+
+const openDepartModal = (depart?: any) => {
+    isEditMode.value = !!depart
+    if (depart) {
+        departForm.value = { id: depart.id, depart_name: depart.depart_name, org_code: depart.org_code }
+    } else {
+        departForm.value = { id: '', depart_name: '', org_code: '' }
+    }
+    showDepartModal.value = true
+}
+
+const saveDepart = async () => {
+    try {
+        if (!departForm.value.depart_name || !departForm.value.org_code) {
+            ElMessage.warning('请填写部门名称和组织编码')
+            return
+        }
+
+        if (isEditMode.value) {
+            const res: any = await request.put(`/admin/departs/${departForm.value.id}`, departForm.value)
+            if (res.code === 200) {
+                ElMessage.success('更新成功')
+                showDepartModal.value = false
+                fetchDeparts()
+            }
+        } else {
+            const res: any = await request.post('/admin/departs', departForm.value)
+            if (res.code === 200) {
+                ElMessage.success('创建成功')
+                showDepartModal.value = false
+                fetchDeparts()
+            }
+        }
+    } catch (err: any) {
+        ElMessage.error(err.response?.data?.message || '操作失败')
+    }
+}
+
+const deleteDepart = async (depart: any) => {
+    try {
+        await ElMessageBox.confirm(`确定要删除部门 ${depart.depart_name} 吗？`, '确认删除', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+        })
+        const res: any = await request.delete(`/admin/departs/${depart.id}`)
+        if (res.code === 200) {
+            ElMessage.success('删除成功')
+            fetchDeparts()
+        }
+    } catch (err: any) {
+        if (err !== 'cancel') {
+            ElMessage.error(err.response?.data?.message || '删除失败')
+        }
+    }
+}
+
 onMounted(() => {
     fetchDashboardData()
 })
@@ -448,6 +703,9 @@ const switchTab = (tab: string) => {
     if (tab === 'reviews') fetchReviews()
     if (tab === 'complaints') fetchComplaints()
     if (tab === 'auth') fetchPendingAuthUsers()
+    if (tab === 'sysUsers') fetchSysUsers()
+    if (tab === 'roles') fetchRoles()
+    if (tab === 'departs') fetchDeparts()
 }
 
 // 监听窗口大小变化，重新调整图表
@@ -494,6 +752,25 @@ window.addEventListener('resize', () => {
                     <span>认证审核</span>
                     <span v-if="pendingStats.pending_auth" class="badge">{{ pendingStats.pending_auth }}</span>
                 </li>
+
+                <!-- RBAC 权限管理 (仅超级管理员可见) -->
+                <template v-if="isSuperAdmin">
+                    <li class="menu-divider">
+                        <span class="divider-text">权限管理</span>
+                    </li>
+                    <li :class="{ active: activeTab === 'sysUsers' }" @click="switchTab('sysUsers')">
+                        <el-icon><Avatar /></el-icon>
+                        <span>管理员管理</span>
+                    </li>
+                    <li :class="{ active: activeTab === 'roles' }" @click="switchTab('roles')">
+                        <el-icon><Setting /></el-icon>
+                        <span>角色管理</span>
+                    </li>
+                    <li :class="{ active: activeTab === 'departs' }" @click="switchTab('departs')">
+                        <el-icon><OfficeBuilding /></el-icon>
+                        <span>部门管理</span>
+                    </li>
+                </template>
             </ul>
         </div>
 
@@ -824,6 +1101,123 @@ window.addEventListener('resize', () => {
                     <el-empty v-if="pendingAuthUsers.length === 0" description="暂无待审核的认证申请" />
                 </div>
             </div>
+
+            <!-- ============================================ -->
+            <!-- RBAC 管理页面 -->
+            <!-- ============================================ -->
+
+            <!-- 管理员管理 -->
+            <div v-if="activeTab === 'sysUsers'" class="page-section">
+                <div class="page-header">
+                    <h2>管理员管理</h2>
+                    <el-button type="primary" @click="openSysUserModal()">新增管理员</el-button>
+                </div>
+                <div class="table-card">
+                    <el-table :data="sysUsers" stripe style="width: 100%">
+                        <el-table-column prop="username" label="用户名" width="150" />
+                        <el-table-column prop="realname" label="真实姓名" width="120">
+                            <template #default="{ row }">{{ row.realname || '-' }}</template>
+                        </el-table-column>
+                        <el-table-column label="角色" min-width="180">
+                            <template #default="{ row }">
+                                <template v-if="row.role_names">
+                                    <el-tag v-for="role in row.role_names.split(',')" :key="role" size="small" class="role-tag">
+                                        {{ role }}
+                                    </el-tag>
+                                </template>
+                                <span v-else class="text-muted">未分配</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="部门" min-width="150">
+                            <template #default="{ row }">
+                                <template v-if="row.depart_names">
+                                    <el-tag v-for="dep in row.depart_names.split(',')" :key="dep" type="info" size="small" class="role-tag">
+                                        {{ dep }}
+                                    </el-tag>
+                                </template>
+                                <span v-else class="text-muted">未分配</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="80">
+                            <template #default="{ row }">
+                                <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
+                                    {{ row.status === 1 ? '正常' : '冻结' }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="创建时间" width="120">
+                            <template #default="{ row }">{{ row.created_at?.substring(0, 10) }}</template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="140" fixed="right">
+                            <template #default="{ row }">
+                                <el-button type="primary" size="small" link @click="openSysUserModal(row)">编辑</el-button>
+                                <el-button type="danger" size="small" link @click="deleteSysUser(row)">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="sysUsers.length === 0" description="暂无管理员数据" />
+                </div>
+            </div>
+
+            <!-- 角色管理 -->
+            <div v-if="activeTab === 'roles'" class="page-section">
+                <div class="page-header">
+                    <h2>角色管理</h2>
+                    <el-button type="primary" @click="openRoleModal()">新增角色</el-button>
+                </div>
+                <div class="table-card">
+                    <el-table :data="roles" stripe style="width: 100%">
+                        <el-table-column prop="role_name" label="角色名称" width="200" />
+                        <el-table-column prop="role_code" label="角色编码" width="200">
+                            <template #default="{ row }">
+                                <el-tag type="warning" effect="plain">{{ row.role_code }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="关联用户数" width="120">
+                            <template #default="{ row }">
+                                <el-tag type="info" size="small">{{ row.user_count || 0 }} 人</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="140" fixed="right">
+                            <template #default="{ row }">
+                                <el-button type="primary" size="small" link @click="openRoleModal(row)">编辑</el-button>
+                                <el-button type="danger" size="small" link @click="deleteRole(row)" :disabled="row.user_count > 0">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="roles.length === 0" description="暂无角色数据" />
+                </div>
+            </div>
+
+            <!-- 部门管理 -->
+            <div v-if="activeTab === 'departs'" class="page-section">
+                <div class="page-header">
+                    <h2>部门管理</h2>
+                    <el-button type="primary" @click="openDepartModal()">新增部门</el-button>
+                </div>
+                <div class="table-card">
+                    <el-table :data="departs" stripe style="width: 100%">
+                        <el-table-column prop="depart_name" label="部门名称" width="200" />
+                        <el-table-column prop="org_code" label="组织编码" width="200">
+                            <template #default="{ row }">
+                                <el-tag type="info" effect="plain">{{ row.org_code }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="关联用户数" width="120">
+                            <template #default="{ row }">
+                                <el-tag type="info" size="small">{{ row.user_count || 0 }} 人</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="140" fixed="right">
+                            <template #default="{ row }">
+                                <el-button type="primary" size="small" link @click="openDepartModal(row)">编辑</el-button>
+                                <el-button type="danger" size="small" link @click="deleteDepart(row)" :disabled="row.user_count > 0">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                    <el-empty v-if="departs.length === 0" description="暂无部门数据" />
+                </div>
+            </div>
         </div>
 
         <!-- 投诉处理弹窗 -->
@@ -927,6 +1321,88 @@ window.addEventListener('resize', () => {
             </div>
             <template #footer>
                 <el-button type="primary" @click="showAuthImageModal = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- ============================================ -->
+        <!-- RBAC 管理弹窗 -->
+        <!-- ============================================ -->
+
+        <!-- 管理员编辑弹窗 -->
+        <el-dialog v-model="showSysUserModal" :title="isEditMode ? '编辑管理员' : '新增管理员'" width="560px">
+            <el-form :model="sysUserForm" label-width="100px">
+                <el-form-item label="用户名" required>
+                    <el-input v-model="sysUserForm.username" :disabled="isEditMode" placeholder="请输入登录用户名" />
+                </el-form-item>
+                <el-form-item label="密码" :required="!isEditMode">
+                    <el-input v-model="sysUserForm.password" type="password" show-password :placeholder="isEditMode ? '留空则不修改密码' : '请输入密码'" />
+                </el-form-item>
+                <el-form-item label="真实姓名">
+                    <el-input v-model="sysUserForm.realname" placeholder="请输入真实姓名" />
+                </el-form-item>
+                <el-form-item label="组织编码">
+                    <el-input v-model="sysUserForm.org_code" placeholder="请输入组织机构编码" />
+                </el-form-item>
+                <el-form-item label="状态">
+                    <el-radio-group v-model="sysUserForm.status">
+                        <el-radio :value="1">正常</el-radio>
+                        <el-radio :value="2">冻结</el-radio>
+                    </el-radio-group>
+                </el-form-item>
+                <el-form-item label="分配角色">
+                    <el-select v-model="sysUserForm.role_ids" multiple placeholder="请选择角色" style="width: 100%">
+                        <el-option v-for="role in roles" :key="role.id" :label="role.role_name" :value="role.id">
+                            <span>{{ role.role_name }}</span>
+                            <span style="color: #909399; font-size: 12px; margin-left: 8px;">{{ role.role_code }}</span>
+                        </el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="分配部门">
+                    <el-select v-model="sysUserForm.depart_ids" multiple placeholder="请选择部门" style="width: 100%">
+                        <el-option v-for="dep in departs" :key="dep.id" :label="dep.depart_name" :value="dep.id">
+                            <span>{{ dep.depart_name }}</span>
+                            <span style="color: #909399; font-size: 12px; margin-left: 8px;">{{ dep.org_code }}</span>
+                        </el-option>
+                    </el-select>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showSysUserModal = false">取消</el-button>
+                <el-button type="primary" @click="saveSysUser">确定</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 角色编辑弹窗 -->
+        <el-dialog v-model="showRoleModal" :title="isEditMode ? '编辑角色' : '新增角色'" width="450px">
+            <el-form :model="roleForm" label-width="100px">
+                <el-form-item label="角色名称" required>
+                    <el-input v-model="roleForm.role_name" placeholder="如：超级管理员、审核员" />
+                </el-form-item>
+                <el-form-item label="角色编码" required>
+                    <el-input v-model="roleForm.role_code" placeholder="如：SUPER_ADMIN、AUDITOR" />
+                    <div class="form-tip">编码用于系统权限判断，建议使用大写英文和下划线</div>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showRoleModal = false">取消</el-button>
+                <el-button type="primary" @click="saveRole">确定</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 部门编辑弹窗 -->
+        <el-dialog v-model="showDepartModal" :title="isEditMode ? '编辑部门' : '新增部门'" width="450px">
+            <el-form :model="departForm" label-width="100px">
+                <el-form-item label="部门名称" required>
+                    <el-input v-model="departForm.depart_name" placeholder="如：运营部、审核部" />
+                </el-form-item>
+                <el-form-item label="组织编码" required>
+                    <el-input v-model="departForm.org_code" placeholder="如：A01、A02" />
+                    <div class="form-tip">组织编码用于标识部门层级结构</div>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showDepartModal = false">取消</el-button>
+                <el-button type="primary" @click="saveDepart">确定</el-button>
             </template>
         </el-dialog>
     </div>
@@ -1334,5 +1810,41 @@ window.addEventListener('resize', () => {
     max-height: 400px;
     border-radius: 8px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================ */
+/* RBAC 管理样式 */
+/* ============================================ */
+
+/* 菜单分隔线 */
+.menu-divider {
+    padding: 12px 24px 8px !important;
+    cursor: default !important;
+    border-left: none !important;
+}
+
+.menu-divider:hover {
+    background: transparent !important;
+}
+
+.divider-text {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* 角色标签 */
+.role-tag {
+    margin-right: 4px;
+    margin-bottom: 4px;
+}
+
+/* 表单提示 */
+.form-tip {
+    font-size: 12px;
+    color: #909399;
+    margin-top: 4px;
+    line-height: 1.4;
 }
 </style>

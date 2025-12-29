@@ -32,6 +32,11 @@
                                 <ShoppingCart />
                             </el-icon><span>我的订单</span>
                         </el-menu-item>
+                        <el-menu-item index="/favorites">
+                            <el-icon>
+                                <Star />
+                            </el-icon><span>我的收藏</span>
+                        </el-menu-item>
                         <el-menu-item index="/sales">
                             <el-icon>
                                 <List />
@@ -84,7 +89,7 @@
 import { computed } from 'vue';
 import { useUserStore } from '../stores/user';
 import { useRouter, useRoute } from 'vue-router';
-import { Shop, Goods, Sell, ShoppingCart, User, ArrowDown, List, ChatDotRound } from '@element-plus/icons-vue';
+import { Shop, Goods, Sell, ShoppingCart, User, ArrowDown, List, ChatDotRound, Star } from '@element-plus/icons-vue';
 
 const userStore = useUserStore();
 const router = useRouter();

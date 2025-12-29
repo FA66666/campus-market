@@ -159,6 +159,14 @@ const contactBuyer = (order: SaleOrder) => {
     })
 }
 
+// 查看买家主页
+const goToBuyerPage = (buyerId: number) => {
+    router.push({
+        name: 'userPage',
+        params: { id: buyerId }
+    })
+}
+
 // 查看交易凭证
 const viewPaymentProof = (order: SaleOrder) => {
     if (order.payment_proof) {
@@ -287,7 +295,10 @@ onMounted(() => fetchSales())
                             <div class="buyer-info-box">
                                 <div class="info-row">
                                     <span class="icon">👤</span>
-                                    <span class="buyer-name">{{ order.buyer_name }}</span>
+                                    <span class="buyer-link" @click="goToBuyerPage(order.buyer_id)">
+                                        <el-avatar :size="20" class="buyer-avatar">{{ order.buyer_name.charAt(0).toUpperCase() }}</el-avatar>
+                                        {{ order.buyer_name }}
+                                    </span>
                                 </div>
                                 <div class="info-row">
                                     <span class="icon">📞</span>
@@ -590,6 +601,26 @@ onMounted(() => fetchSales())
 
 .info-row .icon {
     font-size: 14px;
+}
+
+.buyer-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: #667eea;
+    font-weight: 600;
+    transition: color 0.3s;
+}
+
+.buyer-link:hover {
+    color: #764ba2;
+}
+
+.buyer-avatar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-size: 10px;
+    color: #fff;
 }
 
 .buyer-name {

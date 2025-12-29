@@ -161,6 +161,15 @@ const goToDetail = (item: Item) => {
     })
 }
 
+// 跳转到卖家主页
+const goToSellerPage = (sellerId: number, event: Event) => {
+    event.stopPropagation()
+    router.push({
+        name: 'userPage',
+        params: { id: sellerId }
+    })
+}
+
 // 提交订单
 const submitOrder = async () => {
     if (!address.value || !phone.value) {
@@ -281,7 +290,10 @@ onMounted(() => {
                         <span class="stock-tag">库存: {{ item.stock_quantity }}</span>
                     </div>
                     <div class="item-footer">
-                        <span class="seller">👤 {{ item.seller_name }}</span>
+                        <span class="seller" @click="goToSellerPage(item.seller_id, $event)">
+                            <el-avatar :size="18" class="seller-avatar">{{ item.seller_name.charAt(0).toUpperCase() }}</el-avatar>
+                            {{ item.seller_name }}
+                        </span>
                     </div>
                 </div>
             </el-card>
@@ -562,6 +574,27 @@ onMounted(() => {
     background: linear-gradient(135deg, #f4f4f5 0%, #e9e9eb 100%);
     padding: 4px 12px;
     border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.seller:hover {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+}
+
+.seller-avatar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-size: 10px;
+    color: #fff;
+}
+
+.seller:hover .seller-avatar {
+    background: #fff;
+    color: #667eea;
 }
 
 .cart-float {

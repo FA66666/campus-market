@@ -369,7 +369,38 @@ export const getMyFavorites = async (
   }
 };
 
-// 10. 检查是否已收藏某商品
+// 10. 获取指定用户的在售商品（公开接口）
+export const getUserItems = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.params.userId;
+
+    const sql = `
+      SELECT
+        i.item_id, i.title, i.price, i.main_image, i.stock_quantity, i.status, i.created_at,
+        IFNULL(ist.view_count, 0) AS view_count,
+        IFNULL(ist.collect_count, 0) AS collect_count
+      FROM Items i
+      LEFT JOIN Item_Statistics ist ON i.item_id = ist.item_id
+      WHERE i.seller_id = ? AND i.status = 1 AND i.deleted_at IS NULL
+      ORDER BY i.created_at DESC
+    `;
+    const [rows] = await pool.query<RowDataPacket[]>(sql, [userId]);
+
+    res.json({
+      code: 200,
+      data: rows,
+      message: "获取成功",
+    });
+  } catch (error) {
+    console.error("获取用户商品失败:", error);
+    res.status(500).json({ message: "获取失败" });
+  }
+};
+
+// 11. 检查是否已收藏某商品
 export const checkFavorite = async (
   req: Request,
   res: Response

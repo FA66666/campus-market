@@ -13,6 +13,7 @@ import {
   batchUpdateItemStatus,
   getMyFavorites,
   checkFavorite,
+  getUserItems,
 } from "../controllers/itemController";
 import { authenticateToken } from "../middlewares/auth";
 
@@ -85,6 +86,7 @@ const updateUploadMiddleware = (
 // --- 路由 ---
 
 router.get("/market", getMarketItems);
+router.get("/user/:userId", getUserItems); // 获取指定用户的在售商品（公开）
 router.post("/:id/view", incrementView);
 
 // 发布商品

@@ -11,7 +11,6 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  // ⬇️⬇️⬇️ 必须加上这一行！！！如果没有这行，CALL 存储过程会直接报 500 错误
   multipleStatements: true,
 });
 

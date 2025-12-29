@@ -140,6 +140,14 @@ const contactSeller = (order: Order) => {
     })
 }
 
+// 查看卖家主页
+const goToSellerPage = (sellerId: number) => {
+    router.push({
+        name: 'userPage',
+        params: { id: sellerId }
+    })
+}
+
 // 支付逻辑
 const openPayModal = (id: number) => {
     activeOrderId.value = id
@@ -311,7 +319,11 @@ onUnmounted(() => {
                         <div class="product-details">
                             <h3 class="product-title">{{ order.item_title }}</h3>
                             <p v-if="order.seller_name" class="seller-name">
-                                卖家: {{ order.seller_name }}
+                                卖家:
+                                <span class="seller-link" @click="goToSellerPage(order.seller_id)">
+                                    <el-avatar :size="20" class="seller-avatar">{{ order.seller_name.charAt(0).toUpperCase() }}</el-avatar>
+                                    {{ order.seller_name }}
+                                </span>
                                 <el-tag
                                     :type="(order.seller_credit_score || 100) >= 80 ? 'success' : (order.seller_credit_score || 100) >= 60 ? 'warning' : 'danger'"
                                     size="small"
@@ -529,6 +541,26 @@ onUnmounted(() => {
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+}
+
+.seller-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: #667eea;
+    font-weight: 500;
+    transition: color 0.3s;
+}
+
+.seller-link:hover {
+    color: #764ba2;
+}
+
+.seller-avatar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-size: 10px;
+    color: #fff;
 }
 
 .credit-tag {

@@ -177,7 +177,7 @@ const addToCart = () => {
     ElMessage.success(`已将 ${buyCount.value} 件加入购物车`)
 }
 
-// 5. 联系卖家
+// 联系卖家
 const contactSeller = () => {
     if (!item.value) return
     router.push({
@@ -186,6 +186,15 @@ const contactSeller = () => {
             to: item.value.seller_id,
             name: item.value.seller_name
         }
+    })
+}
+
+// 查看卖家主页
+const goToSellerPage = () => {
+    if (!item.value) return
+    router.push({
+        name: 'userPage',
+        params: { id: item.value.seller_id }
     })
 }
 
@@ -263,11 +272,15 @@ onMounted(() => {
                         <div class="meta-row">
                             <span class="label">卖家</span>
                             <span class="value seller-info">
-                                <span class="link" @click="contactSeller">
-                                    {{ item.seller_name }} <el-icon>
-                                        <ChatDotRound />
-                                    </el-icon>
+                                <span class="seller-link" @click="goToSellerPage">
+                                    <el-avatar :size="24" class="seller-avatar">
+                                        {{ item.seller_name.charAt(0).toUpperCase() }}
+                                    </el-avatar>
+                                    {{ item.seller_name }}
                                 </span>
+                                <el-icon class="chat-icon" @click="contactSeller">
+                                    <ChatDotRound />
+                                </el-icon>
                                 <el-tag
                                     :type="(item.seller_credit_score || 0) >= 80 ? 'success' : (item.seller_credit_score || 0) >= 60 ? 'warning' : 'danger'"
                                     size="small"
@@ -619,13 +632,35 @@ onMounted(() => {
     gap: 12px;
 }
 
-.meta-row .seller-info .link {
+.meta-row .seller-info .seller-link {
     color: #667eea;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-weight: 500;
+    transition: color 0.3s;
+}
+
+.meta-row .seller-info .seller-link:hover {
+    color: #764ba2;
+}
+
+.seller-avatar {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-size: 12px;
+    color: #fff;
+}
+
+.chat-icon {
+    color: #667eea;
+    cursor: pointer;
+    font-size: 18px;
+    transition: color 0.3s;
+}
+
+.chat-icon:hover {
+    color: #764ba2;
 }
 
 .credit-tag {

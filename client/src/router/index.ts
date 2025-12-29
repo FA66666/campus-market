@@ -12,6 +12,8 @@ import UserProfile from "../views/UserProfile.vue";
 import ItemDetail from "../views/ItemDetail.vue";
 import MessageCenter from "../views/MessageCenter.vue";
 import AddressManage from "../views/AddressManage.vue";
+import FavoriteList from "../views/FavoriteList.vue";
+import UserPage from "../views/UserPage.vue";
 
 // 引入后台页面
 import AdminLogin from "../views/AdminLogin.vue";
@@ -42,6 +44,8 @@ const router = createRouter({
         { path: "messages", name: "messages", component: MessageCenter },
         { path: "profile", name: "profile", component: UserProfile },
         { path: "addresses", name: "addresses", component: AddressManage },
+        { path: "favorites", name: "favorites", component: FavoriteList },
+        { path: "user/:id", name: "userPage", component: UserPage },
       ],
     },
 

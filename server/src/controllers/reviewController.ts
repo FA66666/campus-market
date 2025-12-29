@@ -76,14 +76,16 @@ export const getItemReviews = async (
     const itemId = parseInt(req.params.itemId);
 
     const [reviews] = await pool.query<RowDataPacket[]>(
-      `SELECT
+      `SELECT DISTINCT
         r.review_id, r.rating, r.content, r.created_at,
         u.username AS reviewer_name
        FROM Reviews r
        JOIN Orders o ON r.order_id = o.order_id
        JOIN Order_Items oi ON o.order_id = oi.order_id
        JOIN Users u ON r.user_id = u.user_id
-       WHERE oi.item_id = ? AND r.is_hidden = 0
+       WHERE oi.item_id = ?
+         AND r.is_hidden = 0
+         AND r.user_id = o.buyer_id
        ORDER BY r.created_at DESC`,
       [itemId]
     );

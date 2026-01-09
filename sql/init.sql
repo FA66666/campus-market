@@ -156,16 +156,13 @@ CREATE TABLE `Messages` (
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`message_id`),
   
-  -- 优化 "已发送" 和 "特定会话记录" (WHERE sender_id = ? AND receiver_id = ?)
   KEY `idx_msg_chat` (`sender_id`, `receiver_id`),
   
-  -- 优化 "收件箱" 和 "未读消息统计" (WHERE receiver_id = ? AND is_read = 0)
-  -- 解决问题：收件箱查询频率最高，必须有独立的最左前缀索引;带上 is_read 字段，可以直接覆盖“查未读数”的场景
   KEY `idx_receiver_read` (`receiver_id`, `is_read`),
   
   CONSTRAINT `fk_msg_sender` FOREIGN KEY (`sender_id`) REFERENCES `Users` (`user_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_msg_receiver` FOREIGN KEY (`receiver_id`) REFERENCES `Users` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB COMMENT='站内信表';;
+) ENGINE=InnoDB COMMENT='站内信表';
 
 DROP TABLE IF EXISTS `Item_Statistics`;
 CREATE TABLE `Item_Statistics` (

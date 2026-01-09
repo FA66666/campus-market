@@ -65,9 +65,6 @@ BEGIN
             INSERT INTO Order_Items (order_id, item_id, quantity, unit_price) 
             VALUES (p_order_id, v_itm_id, v_qty, v_price);
             
-            -- [核心修复点] 
-            -- 这里的 stock_quantity 已经是减去 v_qty 后的新值
-            -- 所以直接判断 IF(stock_quantity = 0) 即可
             UPDATE Items 
             SET stock_quantity = stock_quantity - v_qty,
                 status = IF(stock_quantity = 0, 2, status)
